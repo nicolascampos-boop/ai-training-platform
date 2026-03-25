@@ -27,12 +27,10 @@ export async function submitSurvey(payload: SurveyPayload) {
 
   const { error } = await supabase
     .from('survey_responses')
-    .upsert(
-      { user_id: user.id, ...payload, updated_at: new Date().toISOString() },
-      { onConflict: 'user_id' }
-    )
+    .insert({ user_id: user.id, ...payload })
 
-  if (error) return { error: error.message }
+  // Ignore duplicate key — already submitted, redirect to dashboard anyway
+  if (error && error.code !== '23505') return { error: error.message }
 
   redirect('/dashboard')
 }

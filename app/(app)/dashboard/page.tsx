@@ -100,11 +100,12 @@ export default async function DashboardPage() {
     .select('*', { count: 'exact', head: true })
     .gte('created_at', weekAgo.toISOString())
 
-  // User progress: per-week Core material counts + user's reviewed IDs + deliverables
-  const [{ data: allMaterialsWeeks }, { data: userVotes }, { data: userDeliverables }] = await Promise.all([
+  // User progress: per-week Core material counts + user's reviewed IDs + deliverables + survey
+  const [{ data: allMaterialsWeeks }, { data: userVotes }, { data: userDeliverables }, { data: mySurvey }] = await Promise.all([
     supabase.from('materials').select('id, week, material_tier').not('week', 'is', null),
     supabase.from('votes').select('material_id').eq('user_id', user!.id),
     supabase.from('week_deliverables').select('week').eq('user_id', user!.id),
+    supabase.from('survey_responses').select('*').eq('user_id', user!.id).single(),
   ])
   const userReviewedIds = new Set((userVotes ?? []).map(v => v.material_id))
   const submittedWeeks = new Set((userDeliverables ?? []).map(d => d.week))
@@ -373,6 +374,54 @@ export default async function DashboardPage() {
               {recentlyActive.slice(0, 5).map(material => (
                 <MaterialCard key={material.id} material={material} from="dashboard" isReviewed={userReviewedIds.has(material.id)} />
               ))}
+            </div>
+          </section>
+        )}
+
+        {/* ── My Survey Response (read-only) ──────────────────────────────── */}
+        {mySurvey && (
+          <section>
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">My Survey Response</h2>
+            <div className="bg-card border border-border rounded-xl p-5 space-y-5">
+              <p className="text-xs text-muted">
+                Submitted on {new Date(mySurvey.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+              </p>
+
+              {/* Ratings */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {([
+                  { label: 'Monday Sessions',   value: mySurvey.rating_monday_sessions, feedback: mySurvey.feedback_monday_sessions },
+                  { label: 'Deliverables',       value: mySurvey.rating_deliverables,    feedback: mySurvey.feedback_deliverables },
+                  { label: 'Material Presented', value: mySurvey.rating_material,        feedback: mySurvey.feedback_material },
+                  { label: 'Resources',          value: mySurvey.rating_resources,       feedback: mySurvey.feedback_resources },
+                  { label: 'Overall Experience', value: mySurvey.rating_overall,         feedback: mySurvey.feedback_overall },
+                ] as const).map(item => (
+                  <div key={item.label} className="bg-gray-50 rounded-lg px-3 py-2.5 space-y-1">
+                    <p className="text-xs font-medium text-gray-700">{item.label}</p>
+                    <p className="text-yellow-500 text-base leading-none">
+                      {'★'.repeat(item.value ?? 0)}
+                      <span className="text-gray-200">{'★'.repeat(5 - (item.value ?? 0))}</span>
+                    </p>
+                    {item.feedback && (
+                      <p className="text-xs text-muted italic">&ldquo;{item.feedback}&rdquo;</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Open-ended */}
+              <div className="space-y-3 pt-1">
+                {([
+                  { label: 'What I want to dig deeper into', value: mySurvey.wants_to_dig_deeper },
+                  { label: 'What I want to explore',         value: mySurvey.wants_to_explore },
+                  { label: 'What I feel confident about',    value: mySurvey.feels_confident_about },
+                ] as const).filter(item => item.value).map(item => (
+                  <div key={item.label}>
+                    <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-1">{item.label}</p>
+                    <p className="text-sm text-gray-700">{item.value}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           </section>
         )}

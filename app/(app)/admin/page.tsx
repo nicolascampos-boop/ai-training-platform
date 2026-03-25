@@ -32,19 +32,24 @@ export default async function AdminPage() {
     .select('*')
     .order('created_at', { ascending: false })
 
-  // Progress tracking data + engagement views + orphaned auth users (all in parallel)
+  // Progress tracking data + engagement views + orphaned auth users + survey (all in parallel)
   const [
     { data: progressMaterials },
     { data: allVotes },
     { data: allDeliverables },
     { data: allViews },
     { orphaned: orphanedUsers },
+    { data: surveyResponses },
   ] = await Promise.all([
     supabase.from('materials').select('id, week, material_tier, title').not('week', 'is', null),
     supabase.from('votes').select('user_id, material_id, comment'),
     supabase.from('week_deliverables').select('user_id, week'),
     supabase.from('material_views').select('user_id, material_id, material_week, source, viewed_at'),
     getOrphanedAuthUsers(),
+    supabase
+      .from('survey_responses')
+      .select('*, profiles(full_name, email)')
+      .order('created_at', { ascending: false }),
   ])
 
   return (
@@ -66,6 +71,7 @@ export default async function AdminPage() {
         engagementData={{
           views: allViews || [],
         }}
+        surveyResponses={surveyResponses || []}
       />
     </div>
   )
