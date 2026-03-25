@@ -38,13 +38,15 @@ export default async function AdminPage() {
     { data: allVotes },
     { data: allDeliverables },
     { data: allViews },
+    { data: allSessions },
     { orphaned: orphanedUsers },
     { data: surveyResponses },
   ] = await Promise.all([
     supabase.from('materials').select('id, week, material_tier, title').not('week', 'is', null),
-    supabase.from('votes').select('user_id, material_id, comment'),
-    supabase.from('week_deliverables').select('user_id, week'),
+    supabase.from('votes').select('user_id, material_id, comment, quality_score, relevance_score'),
+    supabase.from('week_deliverables').select('user_id, week, link, notes, submitted_at'),
     supabase.from('material_views').select('user_id, material_id, material_week, source, viewed_at'),
+    supabase.from('week_sessions').select('week, title, link, session_type'),
     getOrphanedAuthUsers(),
     supabase
       .from('survey_responses')
@@ -67,6 +69,7 @@ export default async function AdminPage() {
           materials: progressMaterials || [],
           votes: allVotes || [],
           deliverables: allDeliverables || [],
+          sessions: allSessions || [],
         }}
         engagementData={{
           views: allViews || [],

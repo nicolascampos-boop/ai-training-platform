@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { deleteUser, updateUserRole, createMissingProfile } from '@/lib/actions/profiles'
+import { adminRecordView, adminRemoveViews, adminUpsertVote, adminRemoveVote, adminUpsertDeliverable, adminRemoveDeliverable } from '@/lib/actions/admin-progress'
 import type { OrphanedUser } from '@/lib/actions/profiles'
 import type { Profile, MaterialWithScores } from '@/lib/supabase/types'
 import { WEEKS } from '@/lib/supabase/types'
@@ -11,8 +12,9 @@ import AdminSurveyTab, { type SurveyResponseWithProfile } from '@/components/adm
 
 interface ProgressRawData {
   materials: { id: string; week: string | null; material_tier: string | null; title?: string | null }[]
-  votes: { user_id: string; material_id: string; comment: string | null }[]
-  deliverables: { user_id: string; week: string }[]
+  votes: { user_id: string; material_id: string; comment: string | null; quality_score: number; relevance_score: number }[]
+  deliverables: { user_id: string; week: string; link: string | null; notes: string | null; submitted_at: string }[]
+  sessions: { week: string; title: string; link: string; session_type: string }[]
 }
 
 interface ViewRecord {
@@ -100,7 +102,7 @@ export default function AdminPanel({ users, materials, orphanedUsers, progressDa
       ) : tab === 'survey' ? (
         <AdminSurveyTab responses={surveyResponses} totalUsers={users.filter(u => u.role === 'user').length} />
       ) : (
-        <EngagementView users={users} progressData={progressData} views={engagementData.views} />
+        <UnifiedProgressView users={users} progressData={progressData} views={engagementData.views} />
       )}
     </div>
   )
@@ -396,173 +398,27 @@ function MaterialsTable({ materials }: { materials: MaterialWithScores[] }) {
   )
 }
 
-// ─── User Progress View ────────────────────────────────────────────────────────
-
-interface WeekStat {
-  week: string
-  total: number
-  reviewed: number
-  hasDeliverable: boolean
-  pct: number
-  complete: boolean
-}
+// ─── Unified Progress View ────────────────────────────────────────────────────
 
 function normalizeTier(tier: string | null | undefined): string {
   if (!tier) return ''
   return tier.toLowerCase().replace(/[\s_-]+/g, '')
 }
 
-function UserProgressView({ users, progressData }: { users: Profile[]; progressData: ProgressRawData }) {
-  const [expandedUser, setExpandedUser] = useState<string | null>(null)
-
-  // Pre-compute required materials per week (shared across all users)
-  const weekRequiredMaterials: Record<string, string[]> = {}
-  for (const week of WEEKS) {
-    weekRequiredMaterials[week] = progressData.materials
-      .filter(m => {
-        if (m.week !== week) return false
-        const t = normalizeTier(m.material_tier)
-        return t === 'mustread' || t === 'core'
-      })
-      .map(m => m.id)
-  }
-
-  // Compute progress for each user
-  const userProgress = users.map(user => {
-    const reviewedIds = new Set(
-      progressData.votes
-        .filter(v => v.user_id === user.id)
-        .map(v => v.material_id)
-    )
-    const deliverableWeeks = new Set(
-      progressData.deliverables
-        .filter(d => d.user_id === user.id)
-        .map(d => d.week)
-    )
-
-    const weekStats = WEEKS
-      .map(week => {
-        const required = weekRequiredMaterials[week]
-        const total = required.length
-        if (total === 0) return null
-        const reviewed = required.filter(id => reviewedIds.has(id)).length
-        const hasDeliverable = deliverableWeeks.has(week)
-        const pct = Math.round((reviewed / total) * 60 + (hasDeliverable ? 40 : 0))
-        const complete = reviewed === total && hasDeliverable
-        return { week, total, reviewed, hasDeliverable, pct, complete }
-      })
-      .filter((s) => s !== null) as WeekStat[]
-
-    const overallPct = weekStats.length > 0
-      ? Math.round(weekStats.reduce((sum, w) => sum + w.pct, 0) / weekStats.length)
-      : 0
-    const weeksComplete = weekStats.filter(w => w.complete).length
-
-    return { user, weekStats, overallPct, weeksComplete }
-  })
-
-  return (
-    <div>
-      <div className="bg-card rounded-xl border border-border overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-gray-50 border-b border-border">
-              <th className="text-left px-5 py-3 text-xs font-medium text-muted uppercase tracking-wider">Member</th>
-              <th className="text-left px-5 py-3 text-xs font-medium text-muted uppercase tracking-wider">Weeks Done</th>
-              <th className="text-left px-5 py-3 text-xs font-medium text-muted uppercase tracking-wider">Overall Progress</th>
-              <th className="px-5 py-3 w-8"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {userProgress.map(({ user, weekStats, overallPct, weeksComplete }) => (
-              <tr key={user.id} className="cursor-pointer" onClick={() => setExpandedUser(expandedUser === user.id ? null : user.id)}>
-                <td className="px-5 py-3" colSpan={expandedUser === user.id ? undefined : undefined}>
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-medium flex-shrink-0">
-                      {(user.full_name || user.email).charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{user.full_name || '—'}</p>
-                      <p className="text-xs text-muted">{user.email}</p>
-                    </div>
-                  </div>
-                  {/* Per-week progress — shown inline when expanded */}
-                  {expandedUser === user.id && weekStats.length > 0 && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-4 mb-1">
-                      {weekStats.map(stat => (
-                        <div
-                          key={stat.week}
-                          className={`rounded-lg border p-3 ${stat.complete ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-white'}`}
-                        >
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-xs font-semibold text-gray-800">{stat.week}</span>
-                            {stat.complete
-                              ? <span className="text-xs text-green-600 font-medium">✓ Done</span>
-                              : <span className="text-xs text-gray-500">{stat.pct}%</span>
-                            }
-                          </div>
-                          <div className="w-full bg-gray-100 rounded-full h-1.5 mb-1.5">
-                            <div
-                              className={`h-1.5 rounded-full transition-all ${stat.complete ? 'bg-green-500' : 'bg-primary'}`}
-                              style={{ width: `${stat.pct}%` }}
-                            />
-                          </div>
-                          <div className="flex items-center gap-2 text-xs text-gray-500">
-                            <span>{stat.reviewed}/{stat.total} reviewed</span>
-                            <span className="text-gray-300">·</span>
-                            <span className={stat.hasDeliverable ? 'text-green-600' : 'text-gray-400'}>
-                              {stat.hasDeliverable ? '✓ deliverable' : 'deliverable pending'}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </td>
-                <td className="px-5 py-3 align-top">
-                  <span className="text-sm text-gray-900">{weeksComplete}/{weekStats.length}</span>
-                </td>
-                <td className="px-5 py-3 align-top">
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1 bg-gray-100 rounded-full h-2 min-w-[6rem]">
-                      <div
-                        className={`h-2 rounded-full transition-all ${overallPct === 100 ? 'bg-green-500' : 'bg-primary'}`}
-                        style={{ width: `${overallPct}%` }}
-                      />
-                    </div>
-                    <span className="text-xs font-medium text-gray-700 w-8 text-right">{overallPct}%</span>
-                  </div>
-                </td>
-                <td className="px-5 py-3 align-top text-right">
-                  <svg
-                    className={`w-4 h-4 text-muted transition-transform ${expandedUser === user.id ? 'rotate-180' : ''}`}
-                    fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {users.length === 0 && (
-          <div className="p-8 text-center text-muted text-sm">No users yet.</div>
-        )}
-      </div>
-    </div>
-  )
+function tierLabel(tier: string | null | undefined): string {
+  const t = normalizeTier(tier)
+  if (t === 'mustread') return 'Must Read'
+  if (t === 'core') return 'Core'
+  return tier || ''
 }
 
-// ─── Engagement View ───────────────────────────────────────────────────────────
-
-const SOURCE_LABEL: Record<string, string> = {
-  weekly: 'Weekly',
-  library: 'Library',
-  dashboard: 'Dashboard',
-  other: 'Direct',
+const SESSION_TYPE_LABEL: Record<string, string> = {
+  weekly: 'Weekly Session',
+  team: 'Team Session',
+  speaker: 'Speaker Session',
 }
 
-function EngagementView({
+function UnifiedProgressView({
   users,
   progressData,
   views,
@@ -571,228 +427,665 @@ function EngagementView({
   progressData: ProgressRawData
   views: ViewRecord[]
 }) {
-  const [selectedWeek, setSelectedWeek] = useState<string>(WEEKS[0])
   const [expandedUser, setExpandedUser] = useState<string | null>(null)
+  const [selectedWeek, setSelectedWeek] = useState<string | null>(null)
+  const [editingUser, setEditingUser] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const router = useRouter()
 
-  // Required materials for the selected week
-  const weekMaterials = progressData.materials.filter(m => m.week === selectedWeek)
-  const requiredMaterials = weekMaterials.filter(m => {
-    const t = normalizeTier(m.material_tier)
-    return t === 'mustread' || t === 'core'
-  })
-  const requiredIds = new Set(requiredMaterials.map(m => m.id))
-
-  // Per-user engagement stats (non-admin users only)
-  const userStats = users
-    .filter(u => u.role !== 'admin')
-    .map(user => {
-      // Views for this user that correspond to a required material in this week
-      const userViews = views.filter(
-        v => v.user_id === user.id && requiredIds.has(v.material_id)
-      )
-      const viewedIds = new Set(userViews.map(v => v.material_id))
-      const viewedCount = viewedIds.size
-
-      // First time they opened any material in this week
-      const firstView = userViews.length > 0
-        ? userViews.reduce((min, v) =>
-            new Date(v.viewed_at) < new Date(min.viewed_at) ? v : min
-          )
-        : null
-
-      // Unique sources used
-      const sources = [...new Set(userViews.map(v => v.source))]
-
-      // Per-material detail: first view timestamp + source for each required material
-      const materialDetail = requiredMaterials.map(mat => {
-        const matViews = userViews
-          .filter(v => v.material_id === mat.id)
-          .sort((a, b) => new Date(a.viewed_at).getTime() - new Date(b.viewed_at).getTime())
-        const first = matViews[0] ?? null
-        return { mat, first }
-      })
-
-      return { user, viewedCount, total: requiredMaterials.length, firstView, sources, materialDetail }
+  // Required materials per week (Must Read / Core only)
+  const weekRequiredMaterials: Record<string, typeof progressData.materials> = {}
+  for (const week of WEEKS) {
+    const mats = progressData.materials.filter(m => {
+      if (m.week !== week) return false
+      const t = normalizeTier(m.material_tier)
+      return t === 'mustread' || t === 'core'
     })
-    .sort((a, b) => b.viewedCount - a.viewedCount)
+    if (mats.length > 0) weekRequiredMaterials[week] = mats
+  }
+  const activeWeeks = Object.keys(weekRequiredMaterials)
 
-  const totalRequired = requiredMaterials.length
+  // Sessions grouped by week
+  const weekSessions: Record<string, typeof progressData.sessions> = {}
+  progressData.sessions.forEach(s => {
+    if (!weekSessions[s.week]) weekSessions[s.week] = []
+    weekSessions[s.week].push(s)
+  })
+
+  // Members only
+  const members = users.filter(u => u.role !== 'admin')
+
+  // Build per-user lookup maps
+  const userViewsMap: Record<string, ViewRecord[]> = {}
+  views.forEach(v => {
+    if (!userViewsMap[v.user_id]) userViewsMap[v.user_id] = []
+    userViewsMap[v.user_id].push(v)
+  })
+
+  const userVotesMap: Record<string, typeof progressData.votes> = {}
+  progressData.votes.forEach(v => {
+    if (!userVotesMap[v.user_id]) userVotesMap[v.user_id] = []
+    userVotesMap[v.user_id].push(v)
+  })
+
+  const userDeliverablesMap: Record<string, Record<string, typeof progressData.deliverables[0]>> = {}
+  progressData.deliverables.forEach(d => {
+    if (!userDeliverablesMap[d.user_id]) userDeliverablesMap[d.user_id] = {}
+    userDeliverablesMap[d.user_id][d.week] = d
+  })
+
+  // ─── Helpers ────────────────────────────────────────────────────────────────
+
+  type UserWeekStats = { opened: number; scored: number; commented: number; total: number; delivered: boolean; deliverableLink: string | null; deliverableDate: string | null }
+
+  function getUserWeekStats(userId: string, week: string): UserWeekStats {
+    const required = weekRequiredMaterials[week] || []
+    const requiredIds = new Set(required.map(m => m.id))
+    const uViews = userViewsMap[userId] || []
+    const uVotes = userVotesMap[userId] || []
+    const deliverable = userDeliverablesMap[userId]?.[week]
+    return {
+      opened: new Set(uViews.filter(v => requiredIds.has(v.material_id)).map(v => v.material_id)).size,
+      scored: new Set(uVotes.filter(v => requiredIds.has(v.material_id)).map(v => v.material_id)).size,
+      commented: new Set(uVotes.filter(v => requiredIds.has(v.material_id) && v.comment && v.comment.trim() !== '').map(v => v.material_id)).size,
+      total: required.length,
+      delivered: !!deliverable,
+      deliverableLink: deliverable?.link || null,
+      deliverableDate: deliverable?.submitted_at || null,
+    }
+  }
+
+  function getMaterialDetail(userId: string, materialId: string) {
+    const uViews = (userViewsMap[userId] || []).filter(v => v.material_id === materialId)
+    const uVote = (userVotesMap[userId] || []).find(v => v.material_id === materialId)
+    const viewCount = uViews.length
+    const firstView = uViews.length > 0 ? uViews.reduce((min, v) => new Date(v.viewed_at) < new Date(min.viewed_at) ? v : min) : null
+    const lastView = uViews.length > 1 ? uViews.reduce((max, v) => new Date(v.viewed_at) > new Date(max.viewed_at) ? v : max) : null
+    return { viewCount, firstView, lastView, reopened: viewCount > 1, vote: uVote || null }
+  }
+
+  function getUserTotalScore(userId: string) {
+    let opened = 0; let scored = 0; let commented = 0; let delivered = 0; let total = 0
+    activeWeeks.forEach(week => {
+      const s = getUserWeekStats(userId, week)
+      opened += s.opened; scored += s.scored; commented += s.commented; total += s.total
+      if (s.delivered) delivered++
+    })
+    return { opened, scored, commented, delivered, total, engagementScore: opened + scored + commented + delivered }
+  }
+
+  // ─── Aggregates ─────────────────────────────────────────────────────────────
+
+  // Per-week stats
+  const weekAggregates: Record<string, { avgOpened: number; scoredMembers: number; commentedMembers: number; deliveredMembers: number; totalRequired: number; mostEngagedName: string; mostEngagedScore: number; topReaderName: string; topReaderCount: number }> = {}
+  let globalTotalRequired = 0; let globalTotalOpened = 0
+
+  activeWeeks.forEach(week => {
+    const required = weekRequiredMaterials[week]
+    let wOpened = 0; let wScored = 0; let wCommented = 0; let wDelivered = 0
+    let bestEngName = '—'; let bestEngScore = 0; let bestReadName = '—'; let bestReadCount = 0
+
+    members.forEach(user => {
+      const s = getUserWeekStats(user.id, week)
+      globalTotalRequired += s.total; globalTotalOpened += s.opened
+      wOpened += s.opened
+      if (s.scored > 0) wScored++
+      if (s.commented > 0) wCommented++
+      if (s.delivered) wDelivered++
+      const eng = s.opened + s.scored + s.commented + (s.delivered ? 1 : 0)
+      if (eng > bestEngScore) { bestEngScore = eng; bestEngName = user.full_name || user.email }
+      if (s.opened > bestReadCount) { bestReadCount = s.opened; bestReadName = user.full_name || user.email }
+    })
+
+    weekAggregates[week] = {
+      avgOpened: members.length > 0 ? wOpened / members.length : 0,
+      scoredMembers: wScored, commentedMembers: wCommented, deliveredMembers: wDelivered,
+      totalRequired: required.length,
+      mostEngagedName: bestEngName, mostEngagedScore: bestEngScore,
+      topReaderName: bestReadName, topReaderCount: bestReadCount,
+    }
+  })
+
+  const overallPct = globalTotalRequired > 0 ? Math.round((globalTotalOpened / globalTotalRequired) * 100) : 0
+  const avgReadsPerWeek = (members.length > 0 && activeWeeks.length > 0) ? (globalTotalOpened / members.length / activeWeeks.length).toFixed(1) : '0'
+
+  // Ranked members — sort by % of materials opened, tiebreak by engagement breadth
+  const memberRanking = members.map(u => {
+    const s = getUserTotalScore(u.id)
+    const pct = s.total > 0 ? s.opened / s.total : 0
+    return { user: u, ...s, pct }
+  }).sort((a, b) => b.pct - a.pct || b.engagementScore - a.engagementScore)
+
+  // Top reviewed materials (by vote count + avg score)
+  const materialVoteCounts: Record<string, { title: string; tier: string | null; voteCount: number; totalQuality: number; totalRelevance: number }> = {}
+  progressData.votes.forEach(v => {
+    const mat = progressData.materials.find(m => m.id === v.material_id)
+    if (!mat) return
+    if (!materialVoteCounts[v.material_id]) materialVoteCounts[v.material_id] = { title: mat.title || mat.id, tier: mat.material_tier, voteCount: 0, totalQuality: 0, totalRelevance: 0 }
+    materialVoteCounts[v.material_id].voteCount++
+    materialVoteCounts[v.material_id].totalQuality += v.quality_score
+    materialVoteCounts[v.material_id].totalRelevance += v.relevance_score
+  })
+  const topMaterials = Object.entries(materialVoteCounts)
+    .map(([id, d]) => ({ id, ...d, avgScore: d.voteCount > 0 ? ((d.totalQuality + d.totalRelevance) / (d.voteCount * 2)) : 0 }))
+    .sort((a, b) => b.voteCount - a.voteCount)
+    .slice(0, 5)
+
+  // Fully complete count
+  let fullyComplete = 0
+  members.forEach(user => {
+    if (activeWeeks.every(week => { const s = getUserWeekStats(user.id, week); return s.opened === s.total && s.scored === s.total && s.delivered })) fullyComplete++
+  })
 
   return (
-    <div>
-      {/* Week selector */}
-      <div className="flex flex-wrap gap-2 mb-6">
-        {WEEKS.map(week => (
-          <button
-            key={week}
-            onClick={() => { setSelectedWeek(week); setExpandedUser(null) }}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              selectedWeek === week
-                ? 'bg-primary text-white shadow-sm'
-                : 'bg-gray-100 text-muted hover:text-gray-700'
-            }`}
-          >
-            {week}
-          </button>
-        ))}
+    <div className="space-y-6">
+      {/* ─── Summary Row ───────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-card rounded-xl border border-border p-5">
+          <p className="text-xs font-medium text-muted uppercase tracking-wider mb-1">Overall Progress</p>
+          <p className="text-2xl font-bold text-gray-900">{overallPct}%</p>
+          <p className="text-xs text-muted mt-0.5">materials opened</p>
+        </div>
+        <div className="bg-card rounded-xl border border-border p-5">
+          <p className="text-xs font-medium text-muted uppercase tracking-wider mb-1">Avg. Reads / Week</p>
+          <p className="text-2xl font-bold text-gray-900">{avgReadsPerWeek}</p>
+          <p className="text-xs text-muted mt-0.5">per member per week</p>
+        </div>
+        <div className="bg-card rounded-xl border border-border p-5">
+          <p className="text-xs font-medium text-muted uppercase tracking-wider mb-1">Fully Complete</p>
+          <p className="text-2xl font-bold text-gray-900">{fullyComplete} <span className="text-sm font-normal text-muted">of {members.length}</span></p>
+        </div>
+        <div className="bg-card rounded-xl border border-border p-5">
+          <p className="text-xs font-medium text-muted uppercase tracking-wider mb-1">Active Weeks</p>
+          <p className="text-2xl font-bold text-gray-900">{activeWeeks.length}</p>
+          <p className="text-xs text-muted mt-0.5">{members.length} members tracked</p>
+        </div>
       </div>
 
-      {totalRequired === 0 ? (
-        <div className="bg-card rounded-xl border border-border p-8 text-center text-muted text-sm">
-          No required materials (Must Read / Core) assigned to {selectedWeek} yet.
-        </div>
-      ) : (
+      {/* ─── Two-Panel Insights ────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Left Panel — Member Leaderboard */}
         <div className="bg-card rounded-xl border border-border overflow-hidden">
-          {/* Header row */}
-          <div className="bg-gray-50 border-b border-border px-5 py-3 flex items-center gap-2">
-            <span className="text-xs font-medium text-muted uppercase tracking-wider flex-1">
-              Member
-            </span>
-            <span className="text-xs font-medium text-muted uppercase tracking-wider w-36 text-center">
-              Required viewed
-            </span>
-            <span className="text-xs font-medium text-muted uppercase tracking-wider w-28 hidden sm:block">
-              First opened
-            </span>
-            <span className="text-xs font-medium text-muted uppercase tracking-wider w-24 hidden md:block">
-              Via
-            </span>
-            <span className="w-5" />
+          <div className="px-5 py-4 border-b border-border">
+            <h3 className="text-sm font-semibold text-gray-900">Member Leaderboard</h3>
+            <p className="text-xs text-muted">Ranked by % of required materials opened</p>
           </div>
+          <div className="divide-y divide-border">
+            {memberRanking.slice(0, 8).map((m, i) => {
+              const pct = m.total > 0 ? Math.round((m.opened / m.total) * 100) : 0
+              return (
+                <div key={m.user.id} className="px-5 py-3 flex items-center gap-3">
+                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                    i === 0 ? 'bg-amber-100 text-amber-700' : i === 1 ? 'bg-gray-200 text-gray-600' : i === 2 ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-400'
+                  }`}>{i + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{m.user.full_name || m.user.email}</p>
+                    <p className="text-xs text-muted">{m.opened} read · {m.scored} scored · {m.commented} commented · {m.delivered} delivered</p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-sm font-semibold text-gray-900">{pct}%</p>
+                    <p className="text-[10px] text-muted">{m.opened}/{m.total}</p>
+                  </div>
+                </div>
+              )
+            })}
+            {members.length === 0 && <div className="p-6 text-center text-muted text-sm">No members yet.</div>}
+          </div>
+        </div>
 
-          {userStats.length === 0 && (
-            <div className="p-8 text-center text-muted text-sm">No members to show.</div>
-          )}
+        {/* Right Panel — Top Materials */}
+        <div className="bg-card rounded-xl border border-border overflow-hidden">
+          <div className="px-5 py-4 border-b border-border">
+            <h3 className="text-sm font-semibold text-gray-900">Top Reviewed Materials</h3>
+            <p className="text-xs text-muted">Most voted materials and their average scores</p>
+          </div>
+          <div className="divide-y divide-border">
+            {topMaterials.map((mat, i) => (
+              <div key={mat.id} className="px-5 py-3 flex items-start gap-3">
+                <span className={`mt-0.5 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                  i === 0 ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-400'
+                }`}>{i + 1}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-900 truncate">{mat.title}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                      normalizeTier(mat.tier) === 'mustread' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'
+                    }`}>{tierLabel(mat.tier)}</span>
+                    <span className="text-xs text-muted">{mat.voteCount} review{mat.voteCount > 1 ? 's' : ''}</span>
+                  </div>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className="text-sm font-bold text-purple-700">{mat.avgScore.toFixed(1)}<span className="text-xs font-normal text-muted">/5</span></p>
+                </div>
+              </div>
+            ))}
+            {topMaterials.length === 0 && <div className="p-6 text-center text-muted text-sm">No reviews yet.</div>}
+          </div>
+        </div>
+      </div>
 
-          {userStats.map(({ user, viewedCount, total, firstView, sources, materialDetail }) => {
-            const allViewed = total > 0 && viewedCount === total
-            const noneViewed = viewedCount === 0
+      {/* ─── Performance Metrics (per week) ────────────────────────────── */}
+      <div className="bg-card rounded-xl border border-border p-5">
+        <h3 className="text-sm font-semibold text-gray-900 mb-1">Performance Metrics</h3>
+        <p className="text-xs text-muted mb-4">Completion, scoring, commenting, and delivery rates per week</p>
+        {activeWeeks.length === 0 ? (
+          <p className="text-sm text-muted">No weeks with required materials yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left py-2 pr-4 font-medium text-muted uppercase tracking-wider">Week</th>
+                  <th className="text-center py-2 px-3 font-medium text-muted uppercase tracking-wider">Materials</th>
+                  <th className="text-center py-2 px-3 font-medium text-muted uppercase tracking-wider">Opened</th>
+                  <th className="text-center py-2 px-3 font-medium text-muted uppercase tracking-wider">Scored</th>
+                  <th className="text-center py-2 px-3 font-medium text-muted uppercase tracking-wider">Commented</th>
+                  <th className="text-center py-2 px-3 font-medium text-muted uppercase tracking-wider">Delivered</th>
+                  <th className="text-left py-2 px-3 font-medium text-muted uppercase tracking-wider">Most Engaged</th>
+                  <th className="text-left py-2 pl-3 font-medium text-muted uppercase tracking-wider">Top Reader</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {activeWeeks.map(week => {
+                  const wa = weekAggregates[week]
+                  const openPct = wa.totalRequired > 0 ? Math.round((wa.avgOpened / wa.totalRequired) * 100) : 0
+                  const scorePct = members.length > 0 ? Math.round((wa.scoredMembers / members.length) * 100) : 0
+                  const commentPct = members.length > 0 ? Math.round((wa.commentedMembers / members.length) * 100) : 0
+                  const deliverPct = members.length > 0 ? Math.round((wa.deliveredMembers / members.length) * 100) : 0
+                  return (
+                    <tr key={week} className="hover:bg-gray-50/50">
+                      <td className="py-2.5 pr-4 font-semibold text-gray-900">{week}</td>
+                      <td className="py-2.5 px-3 text-center text-muted">{wa.totalRequired}</td>
+                      <td className="py-2.5 px-3 text-center">
+                        <span className={`inline-block px-2 py-0.5 rounded-full font-semibold ${openPct >= 75 ? 'bg-green-100 text-green-700' : openPct >= 40 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>{openPct}%</span>
+                      </td>
+                      <td className="py-2.5 px-3 text-center">
+                        <span className={`inline-block px-2 py-0.5 rounded-full font-semibold ${scorePct >= 75 ? 'bg-green-100 text-green-700' : scorePct >= 40 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>{scorePct}%</span>
+                      </td>
+                      <td className="py-2.5 px-3 text-center">
+                        <span className={`inline-block px-2 py-0.5 rounded-full font-semibold ${commentPct >= 75 ? 'bg-green-100 text-green-700' : commentPct >= 40 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>{commentPct}%</span>
+                      </td>
+                      <td className="py-2.5 px-3 text-center">
+                        <span className={`inline-block px-2 py-0.5 rounded-full font-semibold ${deliverPct >= 75 ? 'bg-green-100 text-green-700' : deliverPct >= 40 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>{deliverPct}%</span>
+                      </td>
+                      <td className="py-2.5 px-3 text-muted truncate max-w-[120px]">{wa.mostEngagedName}</td>
+                      <td className="py-2.5 pl-3 text-muted truncate max-w-[120px]">{wa.topReaderName} <span className="text-gray-400">({wa.topReaderCount})</span></td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ─── Individual Progress with week tabs ────────────────────────── */}
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <div className="px-5 py-4 border-b border-border">
+          <h3 className="text-sm font-semibold text-gray-900 mb-0.5">Individual Progress</h3>
+          <p className="text-xs text-muted">Click a member, then navigate between weeks</p>
+        </div>
+
+        {members.length === 0 && (
+          <div className="p-8 text-center text-muted text-sm">No members yet.</div>
+        )}
+
+        <div className="divide-y divide-border">
+          {members.map(user => {
+            const overall = getUserTotalScore(user.id)
+            const overallPctUser = overall.total > 0 ? Math.round((overall.opened / overall.total) * 100) : 0
             const isExpanded = expandedUser === user.id
+            const currentWeek = selectedWeek && activeWeeks.includes(selectedWeek) ? selectedWeek : activeWeeks[0]
 
             return (
-              <div key={user.id} className="border-b border-border last:border-0">
-                {/* Main row */}
+              <div key={user.id}>
+                {/* Collapsed row */}
                 <div
-                  className="flex items-center gap-2 px-5 py-3 cursor-pointer hover:bg-gray-50/50"
-                  onClick={() => setExpandedUser(isExpanded ? null : user.id)}
+                  className="flex items-center gap-3 px-5 py-3 cursor-pointer hover:bg-gray-50/50 transition-colors"
+                  onClick={() => { setExpandedUser(isExpanded ? null : user.id); if (!isExpanded) setSelectedWeek(activeWeeks[0] || null) }}
                 >
-                  {/* User */}
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-medium flex-shrink-0">
-                      {(user.full_name || user.email).charAt(0).toUpperCase()}
+                  <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-medium flex-shrink-0">
+                    {(user.full_name || user.email).charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{user.full_name || '—'}</p>
+                    <p className="text-xs text-muted truncate">{user.email}</p>
+                  </div>
+                  <div className="hidden sm:flex items-center gap-1">
+                    {activeWeeks.map(week => {
+                      const s = getUserWeekStats(user.id, week)
+                      const bg = s.opened === s.total && s.total > 0 ? 'bg-green-500' : s.opened > 0 ? 'bg-amber-400' : 'bg-gray-200'
+                      return <div key={week} className={`w-5 h-5 rounded ${bg} flex items-center justify-center`} title={`${week}: ${s.opened}/${s.total}`}><span className="text-[9px] font-bold text-white">{s.opened}</span></div>
+                    })}
+                  </div>
+                  <div className="flex items-center gap-2 w-28">
+                    <div className="flex-1 bg-gray-100 rounded-full h-2">
+                      <div className={`h-2 rounded-full transition-all ${overallPctUser === 100 ? 'bg-green-500' : overallPctUser > 0 ? 'bg-primary' : 'bg-gray-200'}`} style={{ width: `${overallPctUser}%` }} />
                     </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">
-                        {user.full_name || '—'}
-                      </p>
-                      <p className="text-xs text-muted truncate">{user.email}</p>
-                    </div>
+                    <span className="text-xs font-medium text-gray-600 w-8 text-right">{overallPctUser}%</span>
                   </div>
-
-                  {/* Progress pill */}
-                  <div className="w-36 flex items-center gap-2">
-                    <div className="flex-1 bg-gray-100 rounded-full h-1.5">
-                      <div
-                        className={`h-1.5 rounded-full transition-all ${
-                          allViewed ? 'bg-green-500' : noneViewed ? 'bg-gray-300' : 'bg-amber-400'
-                        }`}
-                        style={{ width: total > 0 ? `${(viewedCount / total) * 100}%` : '0%' }}
-                      />
-                    </div>
-                    <span className={`text-xs font-semibold w-10 text-right ${
-                      allViewed ? 'text-green-600' : noneViewed ? 'text-gray-400' : 'text-amber-600'
-                    }`}>
-                      {viewedCount}/{total}
-                    </span>
-                  </div>
-
-                  {/* First opened */}
-                  <div className="w-28 hidden sm:block">
-                    <span className="text-xs text-muted">
-                      {firstView
-                        ? new Date(firstView.viewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                        : <span className="text-gray-300">—</span>
-                      }
-                    </span>
-                  </div>
-
-                  {/* Source badges */}
-                  <div className="w-24 hidden md:flex flex-wrap gap-1">
-                    {sources.length > 0
-                      ? sources.map(s => (
-                          <span key={s} className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">
-                            {SOURCE_LABEL[s] ?? s}
-                          </span>
-                        ))
-                      : <span className="text-xs text-gray-300">—</span>
-                    }
-                  </div>
-
-                  {/* Chevron */}
-                  <svg
-                    className={`w-4 h-4 text-muted flex-shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                    fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                  >
+                  <svg className={`w-4 h-4 text-muted flex-shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </div>
 
-                {/* Expanded: per-material breakdown */}
-                {isExpanded && (
-                  <div className="bg-gray-50 border-t border-border px-5 py-4">
-                    <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">
-                      Required materials — {selectedWeek}
-                    </p>
-                    <div className="space-y-2">
-                      {materialDetail.map(({ mat, first }) => (
-                        <div key={mat.id} className="flex items-start gap-3">
-                          {/* Viewed indicator */}
-                          <div className={`mt-0.5 w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 ${
-                            first ? 'bg-green-100 text-green-600' : 'bg-gray-200 text-gray-400'
-                          }`}>
-                            {first ? (
-                              <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                              </svg>
-                            ) : (
-                              <span className="w-1.5 h-1.5 rounded-full bg-gray-400 block" />
-                            )}
-                          </div>
-
-                          {/* Title + meta */}
-                          <div className="flex-1 min-w-0">
-                            <p className={`text-sm truncate ${first ? 'text-gray-900' : 'text-gray-400'}`}>
-                              {mat.title ?? mat.id}
-                            </p>
-                            {first && (
-                              <p className="text-xs text-muted mt-0.5">
-                                First opened{' '}
-                                {new Date(first.viewed_at).toLocaleDateString('en-US', {
-                                  month: 'short', day: 'numeric', year: 'numeric',
-                                })}{' '}
-                                · via {SOURCE_LABEL[first.source] ?? first.source}
-                              </p>
-                            )}
-                          </div>
-
-                          {/* Tier badge */}
-                          <span className={`text-xs px-2 py-0.5 rounded flex-shrink-0 ${
-                            normalizeTier(mat.material_tier) === 'mustread'
-                              ? 'bg-amber-100 text-amber-700'
-                              : 'bg-blue-100 text-blue-700'
-                          }`}>
-                            {normalizeTier(mat.material_tier) === 'mustread' ? 'Must Read' : 'Core'}
-                          </span>
-                        </div>
-                      ))}
+                {/* Expanded: week tabs + material detail */}
+                {isExpanded && currentWeek && (
+                  <div className="bg-gray-50 border-t border-border">
+                    {/* Week tabs */}
+                    <div className="px-5 pt-3 pb-0 flex flex-wrap gap-1">
+                      {activeWeeks.map(week => {
+                        const s = getUserWeekStats(user.id, week)
+                        const isActive = week === currentWeek
+                        return (
+                          <button
+                            key={week}
+                            onClick={() => setSelectedWeek(week)}
+                            className={`px-3 py-1.5 rounded-t-lg text-xs font-medium transition-colors border border-b-0 ${
+                              isActive
+                                ? 'bg-white text-gray-900 border-gray-200'
+                                : 'bg-transparent text-muted hover:text-gray-700 border-transparent'
+                            }`}
+                          >
+                            {week}
+                            <span className={`ml-1.5 ${s.opened === s.total && s.total > 0 ? 'text-green-600' : s.opened > 0 ? 'text-amber-500' : 'text-gray-400'}`}>
+                              {s.opened}/{s.total}
+                            </span>
+                          </button>
+                        )
+                      })}
                     </div>
+
+                    {/* Selected week content */}
+                    {(() => {
+                      const required = weekRequiredMaterials[currentWeek] || []
+                      const stats = getUserWeekStats(user.id, currentWeek)
+                      const sessions = weekSessions[currentWeek] || []
+                      const deliverable = userDeliverablesMap[user.id]?.[currentWeek]
+
+                      return (
+                        <div className="mx-5 mb-4 rounded-lg border border-gray-200 bg-white overflow-hidden">
+                          {/* Week summary bar */}
+                          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+                            <span className="text-xs text-muted">
+                              {stats.opened}/{stats.total} opened · {stats.scored}/{stats.total} scored · {stats.commented}/{stats.total} commented
+                            </span>
+                            <div className="flex items-center gap-2">
+                              {stats.opened === stats.total && stats.total > 0 ? (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">All Read</span>
+                              ) : (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">{stats.total > 0 ? Math.round((stats.opened / stats.total) * 100) : 0}%</span>
+                              )}
+                              <button
+                                onClick={() => setEditingUser(editingUser === user.id ? null : user.id)}
+                                className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+                                  editingUser === user.id
+                                    ? 'bg-primary text-white border-primary'
+                                    : 'bg-white text-muted border-gray-200 hover:border-gray-400'
+                                }`}
+                              >
+                                {editingUser === user.id ? 'Done Editing' : 'Edit'}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Material list */}
+                          <div className="divide-y divide-gray-50">
+                            {required.map(mat => {
+                              const detail = getMaterialDetail(user.id, mat.id)
+                              const isEditing = editingUser === user.id
+                              return (
+                                <div key={mat.id} className="px-4 py-2.5">
+                                  <div className="flex items-start gap-3">
+                                    <div className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${detail.viewCount > 0 ? 'bg-green-500' : 'bg-gray-300'}`} />
+                                    <div className="flex-1 min-w-0">
+                                      <p className={`text-sm ${detail.viewCount > 0 ? 'text-gray-900' : 'text-gray-400'}`}>{mat.title || mat.id}</p>
+                                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${normalizeTier(mat.material_tier) === 'mustread' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>{tierLabel(mat.material_tier)}</span>
+                                        {detail.viewCount > 0 ? (
+                                          <span className="text-[10px] text-muted">
+                                            {detail.viewCount} view{detail.viewCount > 1 ? 's' : ''}
+                                            {detail.firstView && <> · {new Date(detail.firstView.viewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</>}
+                                            {detail.reopened && detail.lastView && <> · <span className="text-blue-600">reopened {new Date(detail.lastView.viewed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></>}
+                                          </span>
+                                        ) : <span className="text-[10px] text-gray-400">Not opened</span>}
+                                        {detail.vote ? (
+                                          <span className="text-[10px] text-purple-600">{((detail.vote.quality_score + detail.vote.relevance_score) / 2).toFixed(1)}/5</span>
+                                        ) : <span className="text-[10px] text-gray-400">No score</span>}
+                                        {detail.vote?.comment && detail.vote.comment.trim() !== '' ? (
+                                          <span className="text-[10px] text-amber-600">Commented</span>
+                                        ) : <span className="text-[10px] text-gray-400">No comment</span>}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Inline edit controls */}
+                                  {isEditing && (
+                                    <MaterialEditRow
+                                      userId={user.id}
+                                      materialId={mat.id}
+                                      materialWeek={currentWeek}
+                                      hasView={detail.viewCount > 0}
+                                      existingVote={detail.vote}
+                                      saving={saving}
+                                      setSaving={setSaving}
+                                      onDone={() => router.refresh()}
+                                    />
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+
+                          {/* Footer: deliverable + sessions */}
+                          <div className="px-4 py-2.5 border-t border-gray-100">
+                            <div className="flex flex-wrap gap-x-4 gap-y-1">
+                              {deliverable ? (
+                                <span className="text-xs text-green-700">
+                                  Delivered {new Date(deliverable.submitted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                  {deliverable.link && <a href={deliverable.link} target="_blank" rel="noopener noreferrer" className="ml-1 underline hover:text-green-900">Link</a>}
+                                </span>
+                              ) : <span className="text-xs text-gray-400">Deliverable pending</span>}
+                              {sessions.length > 0 ? (
+                                <span className="text-xs text-muted">Sessions: {sessions.map(s => SESSION_TYPE_LABEL[s.session_type] || s.title).join(', ')}</span>
+                              ) : <span className="text-xs text-gray-400">No sessions</span>}
+                            </div>
+
+                            {/* Deliverable edit controls */}
+                            {editingUser === user.id && (
+                              <DeliverableEditRow
+                                userId={user.id}
+                                week={currentWeek}
+                                existingDeliverable={deliverable}
+                                saving={saving}
+                                setSaving={setSaving}
+                                onDone={() => router.refresh()}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })()}
                   </div>
                 )}
               </div>
             )
           })}
         </div>
-      )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Inline edit components ──────────────────────────────────────────────────
+
+function MaterialEditRow({
+  userId, materialId, materialWeek, hasView, existingVote, saving, setSaving, onDone,
+}: {
+  userId: string
+  materialId: string
+  materialWeek: string
+  hasView: boolean
+  existingVote: { quality_score: number; relevance_score: number; comment: string | null } | null
+  saving: boolean
+  setSaving: (v: boolean) => void
+  onDone: () => void
+}) {
+  const [quality, setQuality] = useState(existingVote?.quality_score ?? 0)
+  const [relevance, setRelevance] = useState(existingVote?.relevance_score ?? 0)
+  const [comment, setComment] = useState(existingVote?.comment ?? '')
+
+  async function toggleView() {
+    setSaving(true)
+    if (hasView) {
+      await adminRemoveViews(userId, materialId)
+    } else {
+      await adminRecordView(userId, materialId, materialWeek)
+    }
+    setSaving(false)
+    onDone()
+  }
+
+  async function saveScore() {
+    if (quality < 1 || quality > 5 || relevance < 1 || relevance > 5) return
+    setSaving(true)
+    await adminUpsertVote(userId, materialId, quality, relevance, comment || undefined)
+    setSaving(false)
+    onDone()
+  }
+
+  async function removeScore() {
+    setSaving(true)
+    await adminRemoveVote(userId, materialId)
+    setQuality(0)
+    setRelevance(0)
+    setComment('')
+    setSaving(false)
+    onDone()
+  }
+
+  return (
+    <div className="mt-2 ml-5 pl-3 border-l-2 border-primary/20 space-y-2">
+      {/* View toggle */}
+      <div className="flex items-center gap-2">
+        <button
+          disabled={saving}
+          onClick={toggleView}
+          className={`text-[10px] px-2 py-0.5 rounded border transition-colors disabled:opacity-50 ${
+            hasView
+              ? 'bg-green-50 text-green-700 border-green-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200'
+              : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-green-50 hover:text-green-700 hover:border-green-200'
+          }`}
+        >
+          {hasView ? 'Remove view' : 'Mark as opened'}
+        </button>
+      </div>
+
+      {/* Score inputs */}
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-[10px] text-muted">Quality:</label>
+        <select value={quality} onChange={e => setQuality(Number(e.target.value))} className="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 bg-white">
+          <option value={0}>—</option>
+          {[1,2,3,4,5].map(n => <option key={n} value={n}>{n}</option>)}
+        </select>
+        <label className="text-[10px] text-muted">Relevance:</label>
+        <select value={relevance} onChange={e => setRelevance(Number(e.target.value))} className="text-[10px] border border-gray-200 rounded px-1.5 py-0.5 bg-white">
+          <option value={0}>—</option>
+          {[1,2,3,4,5].map(n => <option key={n} value={n}>{n}</option>)}
+        </select>
+        <input
+          type="text"
+          placeholder="Comment (optional)"
+          value={comment}
+          onChange={e => setComment(e.target.value)}
+          className="text-[10px] border border-gray-200 rounded px-2 py-0.5 flex-1 min-w-[120px]"
+        />
+        <button
+          disabled={saving || quality < 1 || relevance < 1}
+          onClick={saveScore}
+          className="text-[10px] px-2 py-0.5 rounded bg-primary text-white hover:bg-primary-dark disabled:opacity-40 transition-colors"
+        >
+          {existingVote ? 'Update Score' : 'Add Score'}
+        </button>
+        {existingVote && (
+          <button
+            disabled={saving}
+            onClick={removeScore}
+            className="text-[10px] px-2 py-0.5 rounded border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-40 transition-colors"
+          >
+            Remove
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function DeliverableEditRow({
+  userId, week, existingDeliverable, saving, setSaving, onDone,
+}: {
+  userId: string
+  week: string
+  existingDeliverable: { link: string | null; notes: string | null; submitted_at: string } | undefined
+  saving: boolean
+  setSaving: (v: boolean) => void
+  onDone: () => void
+}) {
+  const [link, setLink] = useState(existingDeliverable?.link ?? '')
+  const [notes, setNotes] = useState(existingDeliverable?.notes ?? '')
+
+  async function saveDeliverable() {
+    if (!link.trim() && !notes.trim()) return
+    setSaving(true)
+    await adminUpsertDeliverable(userId, week, link || undefined, notes || undefined)
+    setSaving(false)
+    onDone()
+  }
+
+  async function removeDeliverable() {
+    setSaving(true)
+    await adminRemoveDeliverable(userId, week)
+    setLink('')
+    setNotes('')
+    setSaving(false)
+    onDone()
+  }
+
+  return (
+    <div className="mt-2 pt-2 border-t border-gray-100 space-y-1.5">
+      <p className="text-[10px] font-medium text-muted">Edit Deliverable</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="url"
+          placeholder="Deliverable link (https://...)"
+          value={link}
+          onChange={e => setLink(e.target.value)}
+          className="text-[10px] border border-gray-200 rounded px-2 py-0.5 flex-1 min-w-[160px]"
+        />
+        <input
+          type="text"
+          placeholder="Notes (optional)"
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          className="text-[10px] border border-gray-200 rounded px-2 py-0.5 flex-1 min-w-[120px]"
+        />
+        <button
+          disabled={saving || (!link.trim() && !notes.trim())}
+          onClick={saveDeliverable}
+          className="text-[10px] px-2 py-0.5 rounded bg-primary text-white hover:bg-primary-dark disabled:opacity-40 transition-colors"
+        >
+          {existingDeliverable ? 'Update' : 'Add Deliverable'}
+        </button>
+        {existingDeliverable && (
+          <button
+            disabled={saving}
+            onClick={removeDeliverable}
+            className="text-[10px] px-2 py-0.5 rounded border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-40 transition-colors"
+          >
+            Remove
+          </button>
+        )}
+      </div>
     </div>
   )
 }
