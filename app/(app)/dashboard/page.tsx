@@ -32,6 +32,7 @@ export default async function DashboardPage() {
     { count: totalMaterials },
     { data: recentVotes },
     { data: topRated },
+    { data: mySurvey },
   ] = await Promise.all([
     supabase.from('materials').select('id, week, material_tier, title').not('week', 'is', null),
     supabase.from('votes').select('material_id').eq('user_id', user!.id),
@@ -40,6 +41,7 @@ export default async function DashboardPage() {
     supabase.from('materials').select('*', { count: 'exact', head: true }),
     supabase.from('votes').select('material_id, created_at').gte('created_at', weekAgo.toISOString()).order('created_at', { ascending: false }),
     supabase.from('material_scores').select('*').gt('vote_count', 0).order('avg_overall', { ascending: false }).limit(8),
+    supabase.from('survey_responses').select('*').eq('user_id', user!.id).maybeSingle(),
   ])
 
   const userReviewedIds = new Set((userVotes ?? []).map(v => v.material_id))
@@ -225,6 +227,34 @@ export default async function DashboardPage() {
           Upload Material
         </Link>
       </div>
+
+      {/* ─── My Survey Response (read-only) ───────────────────────────────── */}
+      {mySurvey && (
+        <div className="mb-6">
+          <h2 className="text-sm font-semibold text-gray-900 mb-3">My Survey Response</h2>
+          <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+            <p className="text-xs text-muted">
+              Submitted on {new Date(mySurvey.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+              {([
+                { label: 'Monday Sessions', value: mySurvey.rating_monday_sessions },
+                { label: 'Deliverables',    value: mySurvey.rating_deliverables },
+                { label: 'Material',        value: mySurvey.rating_material },
+                { label: 'Resources',       value: mySurvey.rating_resources },
+                { label: 'Overall',         value: mySurvey.rating_overall },
+              ] as const).map(item => (
+                <div key={item.label} className="bg-gray-50 rounded-lg px-2 py-2 text-center">
+                  <p className="text-[10px] font-medium text-gray-500 mb-0.5">{item.label}</p>
+                  <p className="text-yellow-500 text-sm leading-none">
+                    {'★'.repeat(item.value ?? 0)}<span className="text-gray-200">{'★'.repeat(5 - (item.value ?? 0))}</span>
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ─── Activity Feed ────────────────────────────────────────────────── */}
       {activityFeed.length > 0 && (

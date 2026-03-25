@@ -8,6 +8,7 @@ import { adminRecordView, adminRemoveViews, adminUpsertVote, adminRemoveVote, ad
 import type { OrphanedUser } from '@/lib/actions/profiles'
 import type { Profile, MaterialWithScores } from '@/lib/supabase/types'
 import { WEEKS } from '@/lib/supabase/types'
+import AdminSurveyTab, { type SurveyResponseWithProfile } from '@/components/admin-survey-tab'
 
 interface ProgressRawData {
   materials: { id: string; week: string | null; material_tier: string | null; title?: string | null }[]
@@ -30,10 +31,11 @@ interface AdminPanelProps {
   orphanedUsers: OrphanedUser[]
   progressData: ProgressRawData
   engagementData: { views: ViewRecord[] }
+  surveyResponses: SurveyResponseWithProfile[]
 }
 
-export default function AdminPanel({ users, materials, orphanedUsers, progressData, engagementData }: AdminPanelProps) {
-  const [tab, setTab] = useState<'users' | 'materials' | 'progress'>('users')
+export default function AdminPanel({ users, materials, orphanedUsers, progressData, engagementData, surveyResponses }: AdminPanelProps) {
+  const [tab, setTab] = useState<'users' | 'materials' | 'progress' | 'engagement' | 'survey'>('users')
 
   return (
     <div>
@@ -68,12 +70,37 @@ export default function AdminPanel({ users, materials, orphanedUsers, progressDa
         >
           Progress
         </button>
+        <button
+          onClick={() => setTab('engagement')}
+          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            tab === 'engagement' ? 'bg-white shadow text-gray-900' : 'text-muted hover:text-gray-700'
+          }`}
+        >
+          Engagement
+        </button>
+        <button
+          onClick={() => setTab('survey')}
+          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            tab === 'survey' ? 'bg-white shadow text-gray-900' : 'text-muted hover:text-gray-700'
+          }`}
+        >
+          Survey
+          {surveyResponses.length > 0 && (
+            <span className="ml-1.5 inline-flex items-center justify-center px-1.5 h-4 rounded-full bg-primary/10 text-primary text-[10px] font-bold">
+              {surveyResponses.length}
+            </span>
+          )}
+        </button>
       </div>
 
       {tab === 'users' ? (
         <UsersTable users={users} orphanedUsers={orphanedUsers} />
       ) : tab === 'materials' ? (
         <MaterialsTable materials={materials} />
+      ) : tab === 'progress' ? (
+        <UserProgressView users={users} progressData={progressData} />
+      ) : tab === 'survey' ? (
+        <AdminSurveyTab responses={surveyResponses} totalUsers={users.filter(u => u.role === 'user').length} />
       ) : (
         <UnifiedProgressView users={users} progressData={progressData} views={engagementData.views} />
       )}
