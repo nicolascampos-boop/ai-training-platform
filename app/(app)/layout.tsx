@@ -1,6 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { headers } from 'next/headers'
 import Sidebar from '@/components/sidebar'
 
 export default async function AppLayout({
@@ -42,30 +41,6 @@ export default async function AppLayout({
       .update({ last_login: new Date().toISOString() })
       .eq('id', user.id)
       .then(() => {}) // Silently ignore errors
-  }
-
-  // Survey gate: only users explicitly assigned the survey are gated
-  const h = await headers()
-  const pathname = h.get('x-pathname') ?? ''
-  const isOnSurveyPage = pathname === '/survey'
-
-  if (profile.survey_required && !isOnSurveyPage) {
-    const { data: activeSurvey } = await supabase
-      .from('surveys')
-      .select('id')
-      .eq('is_active', true)
-      .single()
-
-    if (activeSurvey) {
-      const { data: surveyDone } = await supabase
-        .from('survey_responses')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('survey_id', activeSurvey.id)
-        .single()
-
-      if (!surveyDone) redirect('/survey')
-    }
   }
 
   return (
