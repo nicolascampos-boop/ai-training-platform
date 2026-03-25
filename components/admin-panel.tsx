@@ -2,8 +2,8 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import { deleteUser, updateUserRole, createMissingProfile } from '@/lib/actions/profiles'
+import { deleteMaterial } from '@/lib/actions/materials'
 import { adminRecordView, adminRemoveViews, adminUpsertVote, adminRemoveVote, adminUpsertDeliverable, adminRemoveDeliverable } from '@/lib/actions/admin-progress'
 import type { OrphanedUser } from '@/lib/actions/profiles'
 import type { Profile, MaterialWithScores } from '@/lib/supabase/types'
@@ -101,7 +101,11 @@ export default function AdminPanel({ users, materials, orphanedUsers, progressDa
       ) : tab === 'progress' ? (
         <UnifiedProgressView users={users} progressData={progressData} views={engagementData.views} />
       ) : tab === 'survey' ? (
-        <AdminSurveyTab responses={surveyResponses} users={users as UserForSurvey[]} surveys={surveys} />
+        <AdminSurveyTab
+          responses={surveyResponses}
+          users={users.map(u => ({ id: u.id, email: u.email, full_name: u.full_name, role: u.role, survey_required: u.survey_required }))}
+          surveys={surveys}
+        />
       ) : (
         <UnifiedProgressView users={users} progressData={progressData} views={engagementData.views} />
       )}
@@ -334,15 +338,27 @@ function UsersTable({ users, orphanedUsers }: { users: Profile[]; orphanedUsers:
 
 function MaterialsTable({ materials }: { materials: MaterialWithScores[] }) {
   const router = useRouter()
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  async function handleDelete(materialId: string) {
-    if (!confirm('Are you sure you want to delete this material?')) return
-    const supabase = createClient()
-    await supabase.from('materials').delete().eq('id', materialId)
-    router.refresh()
+  async function handleDelete(materialId: string, title: string) {
+    if (!confirm(`Delete "${title}"? This cannot be undone.`)) return
+    setDeleteError(null)
+    setDeletingId(materialId)
+    const result = await deleteMaterial(materialId)
+    setDeletingId(null)
+    if (result?.error) {
+      setDeleteError(result.error)
+    } else {
+      router.refresh()
+    }
   }
 
   return (
+    <div className="space-y-2">
+      {deleteError && (
+        <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-2">{deleteError}</p>
+      )}
     <div className="bg-card rounded-xl border border-border overflow-hidden">
       <table className="w-full">
         <thead>
@@ -382,10 +398,11 @@ function MaterialsTable({ materials }: { materials: MaterialWithScores[] }) {
               </td>
               <td className="px-5 py-3 text-right">
                 <button
-                  onClick={() => handleDelete(mat.id)}
-                  className="text-xs text-red-600 hover:text-red-700 font-medium"
+                  onClick={() => handleDelete(mat.id, mat.title)}
+                  disabled={deletingId === mat.id}
+                  className="text-xs text-red-600 hover:text-red-700 font-medium disabled:opacity-40"
                 >
-                  Delete
+                  {deletingId === mat.id ? 'Deleting…' : 'Delete'}
                 </button>
               </td>
             </tr>
@@ -395,6 +412,7 @@ function MaterialsTable({ materials }: { materials: MaterialWithScores[] }) {
       {materials.length === 0 && (
         <div className="p-8 text-center text-muted text-sm">No materials yet.</div>
       )}
+    </div>
     </div>
   )
 }
