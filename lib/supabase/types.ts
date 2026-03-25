@@ -12,6 +12,7 @@ export interface Profile {
   created_at: string
   updated_at: string
   last_login: string | null
+  survey_required: boolean
 }
 
 export interface Material {

@@ -8,7 +8,7 @@ import { adminRecordView, adminRemoveViews, adminUpsertVote, adminRemoveVote, ad
 import type { OrphanedUser } from '@/lib/actions/profiles'
 import type { Profile, MaterialWithScores } from '@/lib/supabase/types'
 import { WEEKS } from '@/lib/supabase/types'
-import AdminSurveyTab, { type SurveyResponseWithProfile } from '@/components/admin-survey-tab'
+import AdminSurveyTab, { type SurveyResponseWithProfile, type UserForSurvey } from '@/components/admin-survey-tab'
 
 interface ProgressRawData {
   materials: { id: string; week: string | null; material_tier: string | null; title?: string | null }[]
@@ -100,7 +100,7 @@ export default function AdminPanel({ users, materials, orphanedUsers, progressDa
       ) : tab === 'progress' ? (
         <UserProgressView users={users} progressData={progressData} />
       ) : tab === 'survey' ? (
-        <AdminSurveyTab responses={surveyResponses} totalUsers={users.filter(u => u.role === 'user').length} />
+        <AdminSurveyTab responses={surveyResponses} users={users as UserForSurvey[]} />
       ) : (
         <UnifiedProgressView users={users} progressData={progressData} views={engagementData.views} />
       )}

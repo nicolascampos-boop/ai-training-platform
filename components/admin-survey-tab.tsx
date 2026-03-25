@@ -1,6 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
+import { assignSurvey, deleteSurveyResponse } from '@/lib/actions/survey'
 
 const CATEGORIES = [
   { key: 'monday_sessions', label: 'Monday Sessions' },
@@ -30,6 +32,14 @@ export interface SurveyResponseWithProfile {
   feels_confident_about: string | null
   created_at: string
   profiles: { full_name: string | null; email: string } | null
+}
+
+export interface UserForSurvey {
+  id: string
+  email: string
+  full_name: string | null
+  role: string
+  survey_required: boolean
 }
 
 function calcAvg(responses: SurveyResponseWithProfile[], key: `rating_${CategoryKey}`): number | null {
@@ -63,16 +73,88 @@ function Stars({ rating }: { rating: number | null }) {
   )
 }
 
+// ─── Delete confirm dialog ────────────────────────────────────────────────────
+function DeleteConfirmDialog({
+  userName,
+  onConfirm,
+  onCancel,
+  isPending,
+}: {
+  userName: string
+  onConfirm: () => void
+  onCancel: () => void
+  isPending: boolean
+}) {
+  const [input, setInput] = useState('')
+  const required = 'delete'
+  const canConfirm = input.toLowerCase() === required
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
+        <div className="space-y-1">
+          <h3 className="text-base font-semibold text-gray-900">Delete survey response?</h3>
+          <p className="text-sm text-gray-500">
+            This will permanently delete <span className="font-medium text-gray-800">{userName}</span>&apos;s
+            response. If they are still assigned the survey, they will be required to fill it out again.
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-gray-600">
+            Type <span className="font-mono font-bold text-red-600">delete</span> to confirm
+          </label>
+          <input
+            type="text"
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            placeholder="delete"
+            autoFocus
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+          />
+        </div>
+        <div className="flex gap-2 justify-end pt-1">
+          <button
+            onClick={onCancel}
+            disabled={isPending}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={!canConfirm || isPending}
+            className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 disabled:bg-gray-300 disabled:text-gray-400 rounded-lg transition-colors"
+          >
+            {isPending ? 'Deleting...' : 'Delete Response'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
 export default function AdminSurveyTab({
   responses,
-  totalUsers,
+  users,
 }: {
   responses: SurveyResponseWithProfile[]
-  totalUsers: number
+  users: UserForSurvey[]
 }) {
-  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
 
-  const responseRate = totalUsers > 0 ? Math.round((responses.length / totalUsers) * 100) : 0
+  // Delete state
+  const [deleteTarget, setDeleteTarget] = useState<{ userId: string; name: string } | null>(null)
+
+  // Assignment state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+
+  const memberUsers = users.filter(u => u.role !== 'admin')
+  const completedIds = new Set(responses.map(r => r.user_id))
+  const totalMembers = memberUsers.length
+  const responseRate = totalMembers > 0 ? Math.round((responses.length / totalMembers) * 100) : 0
 
   const overallAvgNum = responses.length > 0
     ? (() => {
@@ -81,8 +163,75 @@ export default function AdminSurveyTab({
       })()
     : null
 
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAll(ids: string[]) {
+    setSelectedIds(prev => {
+      const allSelected = ids.every(id => prev.has(id))
+      if (allSelected) {
+        const next = new Set(prev)
+        ids.forEach(id => next.delete(id))
+        return next
+      }
+      return new Set([...prev, ...ids])
+    })
+  }
+
+  function handleAssign(required: boolean) {
+    if (selectedIds.size === 0) return
+    setError(null)
+    startTransition(async () => {
+      const result = await assignSurvey([...selectedIds], required)
+      if (result?.error) {
+        setError(result.error)
+      } else {
+        setSelectedIds(new Set())
+        router.refresh()
+      }
+    })
+  }
+
+  function handleDelete() {
+    if (!deleteTarget) return
+    startTransition(async () => {
+      const result = await deleteSurveyResponse(deleteTarget.userId)
+      setDeleteTarget(null)
+      if (result?.error) {
+        setError(result.error)
+      } else {
+        router.refresh()
+      }
+    })
+  }
+
+  // Split users into groups for the assignment UI
+  const pendingUsers   = memberUsers.filter(u => u.survey_required && !completedIds.has(u.id))
+  const completedUsers = memberUsers.filter(u => completedIds.has(u.id))
+  const notAssigned    = memberUsers.filter(u => !u.survey_required && !completedIds.has(u.id))
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+
+      {deleteTarget && (
+        <DeleteConfirmDialog
+          userName={deleteTarget.name}
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteTarget(null)}
+          isPending={isPending}
+        />
+      )}
+
+      {error && (
+        <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-2">{error}</p>
+      )}
 
       {/* ── Summary cards ──────────────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-3">
@@ -92,7 +241,7 @@ export default function AdminSurveyTab({
         </div>
         <div className="bg-white border border-border rounded-xl px-5 py-4 min-w-[130px]">
           <p className="text-2xl font-bold text-gray-900">{responseRate}%</p>
-          <p className="text-xs text-muted mt-0.5">Response rate ({responses.length}/{totalUsers})</p>
+          <p className="text-xs text-muted mt-0.5">Response rate ({responses.length}/{totalMembers})</p>
         </div>
         <div className="bg-white border border-border rounded-xl px-5 py-4 min-w-[130px]">
           <p className="text-2xl font-bold text-gray-900">
@@ -101,15 +250,93 @@ export default function AdminSurveyTab({
           </p>
           <p className="text-xs text-muted mt-0.5">Avg overall rating</p>
         </div>
+        <div className="bg-white border border-border rounded-xl px-5 py-4 min-w-[130px]">
+          <p className="text-2xl font-bold text-gray-900">{pendingUsers.length}</p>
+          <p className="text-xs text-muted mt-0.5">Assigned, pending</p>
+        </div>
       </div>
 
-      {responses.length === 0 ? (
-        <div className="text-center py-16 text-muted text-sm">
-          No survey responses yet.
+      {/* ── Send / Manage Survey ───────────────────────────────────────────── */}
+      <div className="bg-white border border-border rounded-xl p-5 space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900">Manage Survey Access</h3>
+            <p className="text-xs text-muted mt-0.5">
+              Select members and assign or remove the survey requirement. Assigned members will be gated until they complete it.
+            </p>
+          </div>
+          {selectedIds.size > 0 && (
+            <div className="flex gap-2 shrink-0">
+              <button
+                onClick={() => handleAssign(false)}
+                disabled={isPending}
+                className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 disabled:opacity-50 rounded-lg transition-colors"
+              >
+                Remove requirement ({selectedIds.size})
+              </button>
+              <button
+                onClick={() => handleAssign(true)}
+                disabled={isPending}
+                className="px-3 py-1.5 text-xs font-medium text-white bg-primary hover:bg-primary/90 disabled:opacity-50 rounded-lg transition-colors"
+              >
+                Require survey ({selectedIds.size})
+              </button>
+            </div>
+          )}
         </div>
-      ) : (
+
+        <div className="space-y-4">
+          {/* Pending group */}
+          {pendingUsers.length > 0 && (
+            <MemberGroup
+              label="Assigned — awaiting response"
+              labelColor="text-amber-700"
+              badge="bg-amber-100 text-amber-700"
+              badgeText="Pending"
+              users={pendingUsers}
+              selectedIds={selectedIds}
+              onToggle={toggleSelect}
+              onToggleAll={() => toggleSelectAll(pendingUsers.map(u => u.id))}
+            />
+          )}
+
+          {/* Completed group */}
+          {completedUsers.length > 0 && (
+            <MemberGroup
+              label="Completed"
+              labelColor="text-green-700"
+              badge="bg-green-100 text-green-700"
+              badgeText="Done"
+              users={completedUsers}
+              selectedIds={selectedIds}
+              onToggle={toggleSelect}
+              onToggleAll={() => toggleSelectAll(completedUsers.map(u => u.id))}
+            />
+          )}
+
+          {/* Not assigned group */}
+          {notAssigned.length > 0 && (
+            <MemberGroup
+              label="Not assigned"
+              labelColor="text-gray-500"
+              badge="bg-gray-100 text-gray-500"
+              badgeText="—"
+              users={notAssigned}
+              selectedIds={selectedIds}
+              onToggle={toggleSelect}
+              onToggleAll={() => toggleSelectAll(notAssigned.map(u => u.id))}
+            />
+          )}
+
+          {memberUsers.length === 0 && (
+            <p className="text-sm text-muted text-center py-6">No members yet.</p>
+          )}
+        </div>
+      </div>
+
+      {/* ── Average ratings ────────────────────────────────────────────────── */}
+      {responses.length > 0 && (
         <>
-          {/* ── Average ratings + distribution ──────────────────────────────── */}
           <div className="bg-white border border-border rounded-xl p-5">
             <h3 className="text-sm font-semibold text-gray-900 mb-5">Average Ratings</h3>
             <div className="space-y-5">
@@ -121,7 +348,6 @@ export default function AdminSurveyTab({
 
                 return (
                   <div key={cat.key}>
-                    {/* Label + bar + value */}
                     <div className="flex items-center gap-3">
                       <span className="text-sm text-gray-700 w-36 shrink-0">{cat.label}</span>
                       <div className="flex-1 bg-gray-100 rounded-full h-2.5">
@@ -136,8 +362,6 @@ export default function AdminSurveyTab({
                         {average !== null ? average.toFixed(1) : '—'}
                       </span>
                     </div>
-
-                    {/* Distribution mini chart */}
                     <div className="flex items-end gap-1 mt-2 ml-36 pl-3 h-8">
                       {dist.map((count, i) => {
                         const heightPct = (count / maxDist) * 100
@@ -166,7 +390,7 @@ export default function AdminSurveyTab({
             </div>
           </div>
 
-          {/* ── Individual responses ─────────────────────────────────────────── */}
+          {/* ── Individual responses ──────────────────────────────────────────── */}
           <div>
             <h3 className="text-sm font-semibold text-gray-900 mb-3">
               {responses.length} Individual Response{responses.length !== 1 ? 's' : ''}
@@ -181,41 +405,51 @@ export default function AdminSurveyTab({
 
                 return (
                   <div key={r.id} className="bg-white border border-border rounded-xl overflow-hidden">
-
-                    {/* Collapsed row */}
-                    <button
-                      onClick={() => setExpandedId(isExpanded ? null : r.id)}
-                      className="w-full text-left px-5 py-4 hover:bg-gray-50 transition-colors"
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">{name}</p>
-                          <div className="flex flex-wrap gap-3 mt-1.5">
-                            {CATEGORIES.map(cat => (
-                              <div key={cat.key} className="flex items-center gap-1">
-                                <span className="text-[10px] text-muted">{cat.label.split(' ')[0]}:</span>
-                                <Stars rating={r[`rating_${cat.key}`]} />
-                              </div>
-                            ))}
+                    <div className="flex items-stretch">
+                      {/* Main expand button */}
+                      <button
+                        onClick={() => setExpandedId(isExpanded ? null : r.id)}
+                        className="flex-1 text-left px-5 py-4 hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">{name}</p>
+                            <div className="flex flex-wrap gap-3 mt-1.5">
+                              {CATEGORIES.map(cat => (
+                                <div key={cat.key} className="flex items-center gap-1">
+                                  <span className="text-[10px] text-muted">{cat.label.split(' ')[0]}:</span>
+                                  <Stars rating={r[`rating_${cat.key}`]} />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-xs text-muted">{date}</span>
+                            <svg
+                              className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                              fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className="text-xs text-muted">{date}</span>
-                          <svg
-                            className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                            fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                          >
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                          </svg>
-                        </div>
-                      </div>
-                    </button>
+                      </button>
+
+                      {/* Delete button */}
+                      <button
+                        onClick={() => setDeleteTarget({ userId: r.user_id, name })}
+                        className="px-4 border-l border-border text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                        title="Delete response"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    </div>
 
                     {/* Expanded detail */}
                     {isExpanded && (
                       <div className="border-t border-border bg-gray-50 px-5 py-5 space-y-5">
-
-                        {/* Per-category detail */}
                         <div>
                           <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-3">Ratings &amp; Comments</p>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -238,8 +472,6 @@ export default function AdminSurveyTab({
                             })}
                           </div>
                         </div>
-
-                        {/* Open-ended answers */}
                         <div>
                           <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-3">Open Answers</p>
                           <div className="space-y-2">
@@ -266,6 +498,79 @@ export default function AdminSurveyTab({
           </div>
         </>
       )}
+
+      {responses.length === 0 && (
+        <div className="text-center py-16 text-muted text-sm">
+          No survey responses yet.
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Reusable member group ────────────────────────────────────────────────────
+function MemberGroup({
+  label,
+  labelColor,
+  badge,
+  badgeText,
+  users,
+  selectedIds,
+  onToggle,
+  onToggleAll,
+}: {
+  label: string
+  labelColor: string
+  badge: string
+  badgeText: string
+  users: UserForSurvey[]
+  selectedIds: Set<string>
+  onToggle: (id: string) => void
+  onToggleAll: () => void
+}) {
+  const allSelected = users.every(u => selectedIds.has(u.id))
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2">
+        <button
+          onClick={onToggleAll}
+          className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${
+            allSelected ? 'bg-primary border-primary' : 'border-gray-300 hover:border-primary'
+          }`}
+          title={allSelected ? 'Deselect all' : 'Select all'}
+        >
+          {allSelected && (
+            <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          )}
+        </button>
+        <span className={`text-xs font-semibold ${labelColor}`}>{label} ({users.length})</span>
+      </div>
+      <div className="space-y-1 pl-6">
+        {users.map(u => (
+          <label key={u.id} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={selectedIds.has(u.id)}
+              onChange={() => onToggle(u.id)}
+              className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+            />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-900 truncate">
+                {u.full_name || u.email}
+              </p>
+              {u.full_name && (
+                <p className="text-xs text-muted truncate">{u.email}</p>
+              )}
+            </div>
+            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${badge}`}>
+              {badgeText}
+            </span>
+          </label>
+        ))}
+      </div>
     </div>
   )
 }
