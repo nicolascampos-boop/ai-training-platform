@@ -44,12 +44,12 @@ export default async function AppLayout({
       .then(() => {}) // Silently ignore errors
   }
 
-  // Survey gate: non-admins must complete the survey before accessing any page
+  // Survey gate: only users explicitly assigned the survey are gated
   const h = await headers()
   const pathname = h.get('x-pathname') ?? ''
   const isOnSurveyPage = pathname === '/survey'
 
-  if (profile.role !== 'admin' && !isOnSurveyPage) {
+  if (profile.survey_required && !isOnSurveyPage) {
     const { data: surveyDone } = await supabase
       .from('survey_responses')
       .select('id')
