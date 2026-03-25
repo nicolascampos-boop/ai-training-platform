@@ -81,7 +81,7 @@ function StarRating({
   )
 }
 
-export default function SurveyForm() {
+export default function SurveyForm({ surveyId, surveyTitle }: { surveyId: string; surveyTitle: string }) {
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
 
@@ -116,6 +116,7 @@ export default function SurveyForm() {
     setError(null)
     startTransition(async () => {
       const result = await submitSurvey({
+        survey_id: surveyId,
         rating_monday_sessions: ratings.monday_sessions,
         rating_deliverables: ratings.deliverables,
         rating_material: ratings.material,
@@ -142,7 +143,7 @@ export default function SurveyForm() {
       <div className="text-center space-y-3 pt-4">
         <div className="text-4xl">👋</div>
         <h1 className="text-2xl font-bold text-gray-100">
-          Before you dive in...
+          {surveyTitle}
         </h1>
         <p className="text-gray-400 max-w-md mx-auto">
           Take a moment to share how your experience has been going.

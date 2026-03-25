@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { assignSurvey, deleteSurveyResponse } from '@/lib/actions/survey'
+import { assignSurvey, deleteSurveyResponse, createSurveyRound, setActiveSurvey } from '@/lib/actions/survey'
 
 const CATEGORIES = [
   { key: 'monday_sessions', label: 'Monday Sessions' },
@@ -14,9 +14,17 @@ const CATEGORIES = [
 
 type CategoryKey = typeof CATEGORIES[number]['key']
 
+export interface SurveyRound {
+  id: string
+  title: string
+  is_active: boolean
+  created_at: string
+}
+
 export interface SurveyResponseWithProfile {
   id: string
   user_id: string
+  survey_id: string | null
   rating_monday_sessions: number | null
   rating_deliverables:    number | null
   rating_material:        number | null
@@ -42,6 +50,7 @@ export interface UserForSurvey {
   survey_required: boolean
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function calcAvg(responses: SurveyResponseWithProfile[], key: `rating_${CategoryKey}`): number | null {
   const vals = responses.map(r => r[key]).filter((v): v is number => v !== null)
   if (!vals.length) return null
@@ -86,8 +95,7 @@ function DeleteConfirmDialog({
   isPending: boolean
 }) {
   const [input, setInput] = useState('')
-  const required = 'delete'
-  const canConfirm = input.toLowerCase() === required
+  const canConfirm = input.toLowerCase() === 'delete'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -96,7 +104,7 @@ function DeleteConfirmDialog({
           <h3 className="text-base font-semibold text-gray-900">Delete survey response?</h3>
           <p className="text-sm text-gray-500">
             This will permanently delete <span className="font-medium text-gray-800">{userName}</span>&apos;s
-            response. If they are still assigned the survey, they will be required to fill it out again.
+            response. If they are still assigned the survey, they will need to fill it out again.
           </p>
         </div>
         <div className="space-y-1.5">
@@ -137,28 +145,45 @@ function DeleteConfirmDialog({
 export default function AdminSurveyTab({
   responses,
   users,
+  surveys,
 }: {
   responses: SurveyResponseWithProfile[]
   users: UserForSurvey[]
+  surveys: SurveyRound[]
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
 
-  // Delete state
-  const [deleteTarget, setDeleteTarget] = useState<{ userId: string; name: string } | null>(null)
+  // Active survey round selection
+  const activeSurvey = surveys.find(s => s.is_active) ?? null
+  const [viewingSurveyId, setViewingSurveyId] = useState<string>(activeSurvey?.id ?? surveys[0]?.id ?? '')
 
-  // Assignment state
+  // Create round state
+  const [showCreateRound, setShowCreateRound] = useState(false)
+  const [newRoundTitle, setNewRoundTitle] = useState('')
+
+  // Delete state
+  const [deleteTarget, setDeleteTarget] = useState<{ userId: string; surveyId: string; name: string } | null>(null)
+
+  // Assignment selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
-  const memberUsers = users.filter(u => u.role !== 'admin')
-  const completedIds = new Set(responses.map(r => r.user_id))
-  const totalMembers = memberUsers.length
-  const responseRate = totalMembers > 0 ? Math.round((responses.length / totalMembers) * 100) : 0
+  // Filter responses to the viewed round
+  const roundResponses = responses.filter(r => r.survey_id === viewingSurveyId)
+  const completedIds = new Set(roundResponses.map(r => r.user_id))
 
-  const overallAvgNum = responses.length > 0
+  // ALL users (including admins) can be assigned
+  const allUsers = users
+  const totalAssignable = allUsers.length
+
+  const responseRate = totalAssignable > 0
+    ? Math.round((roundResponses.length / totalAssignable) * 100)
+    : 0
+
+  const overallAvgNum = roundResponses.length > 0
     ? (() => {
-        const vals = responses.map(r => r.rating_overall).filter((v): v is number => v !== null)
+        const vals = roundResponses.map(r => r.rating_overall).filter((v): v is number => v !== null)
         return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null
       })()
     : null
@@ -202,20 +227,41 @@ export default function AdminSurveyTab({
   function handleDelete() {
     if (!deleteTarget) return
     startTransition(async () => {
-      const result = await deleteSurveyResponse(deleteTarget.userId)
+      const result = await deleteSurveyResponse(deleteTarget.userId, deleteTarget.surveyId)
       setDeleteTarget(null)
+      if (result?.error) setError(result.error)
+      else router.refresh()
+    })
+  }
+
+  function handleCreateRound() {
+    if (!newRoundTitle.trim()) return
+    setError(null)
+    startTransition(async () => {
+      const result = await createSurveyRound(newRoundTitle.trim())
       if (result?.error) {
         setError(result.error)
       } else {
+        setNewRoundTitle('')
+        setShowCreateRound(false)
         router.refresh()
       }
     })
   }
 
-  // Split users into groups for the assignment UI
-  const pendingUsers   = memberUsers.filter(u => u.survey_required && !completedIds.has(u.id))
-  const completedUsers = memberUsers.filter(u => completedIds.has(u.id))
-  const notAssigned    = memberUsers.filter(u => !u.survey_required && !completedIds.has(u.id))
+  function handleSetActive(surveyId: string) {
+    setError(null)
+    startTransition(async () => {
+      const result = await setActiveSurvey(surveyId)
+      if (result?.error) setError(result.error)
+      else router.refresh()
+    })
+  }
+
+  // Group users by status for the viewed round
+  const pendingUsers   = allUsers.filter(u => u.survey_required && !completedIds.has(u.id))
+  const completedUsers = allUsers.filter(u => completedIds.has(u.id))
+  const notAssigned    = allUsers.filter(u => !u.survey_required && !completedIds.has(u.id))
 
   return (
     <div className="space-y-8">
@@ -233,15 +279,84 @@ export default function AdminSurveyTab({
         <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-2">{error}</p>
       )}
 
+      {/* ── Survey Rounds header ───────────────────────────────────────────── */}
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          {surveys.map(s => (
+            <button
+              key={s.id}
+              onClick={() => setViewingSurveyId(s.id)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                viewingSurveyId === s.id
+                  ? 'bg-primary text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {s.title}
+              {s.is_active && (
+                <span className="text-[9px] font-bold bg-white/20 px-1 py-0.5 rounded">ACTIVE</span>
+              )}
+            </button>
+          ))}
+          <button
+            onClick={() => setShowCreateRound(v => !v)}
+            className="px-3 py-1.5 rounded-lg text-sm font-medium text-primary bg-primary/10 hover:bg-primary/20 transition-colors"
+          >
+            + New Round
+          </button>
+        </div>
+
+        {/* Set active button for non-active viewed round */}
+        {viewingSurveyId && !surveys.find(s => s.id === viewingSurveyId)?.is_active && (
+          <button
+            onClick={() => handleSetActive(viewingSurveyId)}
+            disabled={isPending}
+            className="px-3 py-1.5 text-xs font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 rounded-lg transition-colors"
+          >
+            Set as Active
+          </button>
+        )}
+      </div>
+
+      {/* Create round form */}
+      {showCreateRound && (
+        <div className="bg-gray-50 border border-border rounded-xl p-4 flex gap-3 items-end">
+          <div className="flex-1 space-y-1">
+            <label className="text-xs font-medium text-gray-600">New survey round title</label>
+            <input
+              type="text"
+              value={newRoundTitle}
+              onChange={e => setNewRoundTitle(e.target.value)}
+              placeholder="e.g. Engagement Survey #2"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              onKeyDown={e => e.key === 'Enter' && handleCreateRound()}
+            />
+          </div>
+          <button
+            onClick={handleCreateRound}
+            disabled={isPending || !newRoundTitle.trim()}
+            className="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 disabled:opacity-50 rounded-lg transition-colors"
+          >
+            {isPending ? 'Creating...' : 'Create & Activate'}
+          </button>
+          <button
+            onClick={() => setShowCreateRound(false)}
+            className="px-4 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
       {/* ── Summary cards ──────────────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-3">
         <div className="bg-white border border-border rounded-xl px-5 py-4 min-w-[130px]">
-          <p className="text-2xl font-bold text-gray-900">{responses.length}</p>
+          <p className="text-2xl font-bold text-gray-900">{roundResponses.length}</p>
           <p className="text-xs text-muted mt-0.5">Responses</p>
         </div>
         <div className="bg-white border border-border rounded-xl px-5 py-4 min-w-[130px]">
           <p className="text-2xl font-bold text-gray-900">{responseRate}%</p>
-          <p className="text-xs text-muted mt-0.5">Response rate ({responses.length}/{totalMembers})</p>
+          <p className="text-xs text-muted mt-0.5">Response rate ({roundResponses.length}/{totalAssignable})</p>
         </div>
         <div className="bg-white border border-border rounded-xl px-5 py-4 min-w-[130px]">
           <p className="text-2xl font-bold text-gray-900">
@@ -262,7 +377,7 @@ export default function AdminSurveyTab({
           <div>
             <h3 className="text-sm font-semibold text-gray-900">Manage Survey Access</h3>
             <p className="text-xs text-muted mt-0.5">
-              Select members and assign or remove the survey requirement. Assigned members will be gated until they complete it.
+              Select anyone — including yourself — and require or remove the survey. Assigned users are gated until they complete the active round.
             </p>
           </div>
           {selectedIds.size > 0 && (
@@ -286,7 +401,6 @@ export default function AdminSurveyTab({
         </div>
 
         <div className="space-y-4">
-          {/* Pending group */}
           {pendingUsers.length > 0 && (
             <MemberGroup
               label="Assigned — awaiting response"
@@ -299,11 +413,9 @@ export default function AdminSurveyTab({
               onToggleAll={() => toggleSelectAll(pendingUsers.map(u => u.id))}
             />
           )}
-
-          {/* Completed group */}
           {completedUsers.length > 0 && (
             <MemberGroup
-              label="Completed"
+              label="Completed this round"
               labelColor="text-green-700"
               badge="bg-green-100 text-green-700"
               badgeText="Done"
@@ -313,8 +425,6 @@ export default function AdminSurveyTab({
               onToggleAll={() => toggleSelectAll(completedUsers.map(u => u.id))}
             />
           )}
-
-          {/* Not assigned group */}
           {notAssigned.length > 0 && (
             <MemberGroup
               label="Not assigned"
@@ -327,23 +437,22 @@ export default function AdminSurveyTab({
               onToggleAll={() => toggleSelectAll(notAssigned.map(u => u.id))}
             />
           )}
-
-          {memberUsers.length === 0 && (
-            <p className="text-sm text-muted text-center py-6">No members yet.</p>
+          {allUsers.length === 0 && (
+            <p className="text-sm text-muted text-center py-6">No users yet.</p>
           )}
         </div>
       </div>
 
       {/* ── Average ratings ────────────────────────────────────────────────── */}
-      {responses.length > 0 && (
+      {roundResponses.length > 0 && (
         <>
           <div className="bg-white border border-border rounded-xl p-5">
             <h3 className="text-sm font-semibold text-gray-900 mb-5">Average Ratings</h3>
             <div className="space-y-5">
               {CATEGORIES.map(cat => {
                 const ratingKey = `rating_${cat.key}` as `rating_${CategoryKey}`
-                const average = calcAvg(responses, ratingKey)
-                const dist    = calcDist(responses, ratingKey)
+                const average = calcAvg(roundResponses, ratingKey)
+                const dist    = calcDist(roundResponses, ratingKey)
                 const maxDist = Math.max(...dist, 1)
 
                 return (
@@ -367,7 +476,7 @@ export default function AdminSurveyTab({
                         const heightPct = (count / maxDist) * 100
                         const isZero = count === 0
                         return (
-                          <div key={i} className="flex flex-col items-center gap-0.5 flex-1" title={`${i + 1}★: ${count} response${count !== 1 ? 's' : ''}`}>
+                          <div key={i} className="flex flex-col items-center gap-0.5 flex-1" title={`${i + 1}★: ${count}`}>
                             <div className="w-full relative" style={{ height: '24px' }}>
                               <div
                                 className={`absolute bottom-0 w-full rounded-t transition-all ${
@@ -393,10 +502,10 @@ export default function AdminSurveyTab({
           {/* ── Individual responses ──────────────────────────────────────────── */}
           <div>
             <h3 className="text-sm font-semibold text-gray-900 mb-3">
-              {responses.length} Individual Response{responses.length !== 1 ? 's' : ''}
+              {roundResponses.length} Individual Response{roundResponses.length !== 1 ? 's' : ''}
             </h3>
             <div className="space-y-2">
-              {responses.map(r => {
+              {roundResponses.map(r => {
                 const isExpanded = expandedId === r.id
                 const name = r.profiles?.full_name || r.profiles?.email || 'Unknown'
                 const date = new Date(r.created_at).toLocaleDateString('en-US', {
@@ -406,7 +515,6 @@ export default function AdminSurveyTab({
                 return (
                   <div key={r.id} className="bg-white border border-border rounded-xl overflow-hidden">
                     <div className="flex items-stretch">
-                      {/* Main expand button */}
                       <button
                         onClick={() => setExpandedId(isExpanded ? null : r.id)}
                         className="flex-1 text-left px-5 py-4 hover:bg-gray-50 transition-colors"
@@ -425,19 +533,14 @@ export default function AdminSurveyTab({
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
                             <span className="text-xs text-muted">{date}</span>
-                            <svg
-                              className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                              fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                            >
+                            <svg className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                             </svg>
                           </div>
                         </div>
                       </button>
-
-                      {/* Delete button */}
                       <button
-                        onClick={() => setDeleteTarget({ userId: r.user_id, name })}
+                        onClick={() => setDeleteTarget({ userId: r.user_id, surveyId: r.survey_id!, name })}
                         className="px-4 border-l border-border text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
                         title="Delete response"
                       >
@@ -447,7 +550,6 @@ export default function AdminSurveyTab({
                       </button>
                     </div>
 
-                    {/* Expanded detail */}
                     {isExpanded && (
                       <div className="border-t border-border bg-gray-50 px-5 py-5 space-y-5">
                         <div>
@@ -462,11 +564,10 @@ export default function AdminSurveyTab({
                                     <span className="text-xs font-medium text-gray-700">{cat.label}</span>
                                     <Stars rating={rating} />
                                   </div>
-                                  {feedback ? (
-                                    <p className="text-xs text-muted italic">&ldquo;{feedback}&rdquo;</p>
-                                  ) : (
-                                    <p className="text-xs text-gray-300">No comment</p>
-                                  )}
+                                  {feedback
+                                    ? <p className="text-xs text-muted italic">&ldquo;{feedback}&rdquo;</p>
+                                    : <p className="text-xs text-gray-300">No comment</p>
+                                  }
                                 </div>
                               )
                             })}
@@ -499,25 +600,18 @@ export default function AdminSurveyTab({
         </>
       )}
 
-      {responses.length === 0 && (
+      {roundResponses.length === 0 && (
         <div className="text-center py-16 text-muted text-sm">
-          No survey responses yet.
+          No responses yet for this survey round.
         </div>
       )}
     </div>
   )
 }
 
-// ─── Reusable member group ────────────────────────────────────────────────────
+// ─── Member group with checkboxes ─────────────────────────────────────────────
 function MemberGroup({
-  label,
-  labelColor,
-  badge,
-  badgeText,
-  users,
-  selectedIds,
-  onToggle,
-  onToggleAll,
+  label, labelColor, badge, badgeText, users, selectedIds, onToggle, onToggleAll,
 }: {
   label: string
   labelColor: string
@@ -538,7 +632,6 @@ function MemberGroup({
           className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${
             allSelected ? 'bg-primary border-primary' : 'border-gray-300 hover:border-primary'
           }`}
-          title={allSelected ? 'Deselect all' : 'Select all'}
         >
           {allSelected && (
             <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -560,10 +653,11 @@ function MemberGroup({
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-gray-900 truncate">
                 {u.full_name || u.email}
+                {u.role === 'admin' && (
+                  <span className="ml-1.5 text-[10px] font-bold text-purple-600 bg-purple-100 px-1 py-0.5 rounded">Admin</span>
+                )}
               </p>
-              {u.full_name && (
-                <p className="text-xs text-muted truncate">{u.email}</p>
-              )}
+              {u.full_name && <p className="text-xs text-muted truncate">{u.email}</p>}
             </div>
             <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${badge}`}>
               {badgeText}
