@@ -232,26 +232,49 @@ export default async function DashboardPage() {
       {mySurvey && (
         <div className="mb-6">
           <h2 className="text-sm font-semibold text-gray-900 mb-3">My Survey Response</h2>
-          <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+          <div className="bg-card border border-border rounded-xl p-4 space-y-4">
             <p className="text-xs text-muted">
               Submitted on {new Date(mySurvey.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
             </p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+            {/* Ratings + comments per category */}
+            <div className="space-y-2">
               {([
-                { label: 'Monday Sessions', value: mySurvey.rating_monday_sessions },
-                { label: 'Deliverables',    value: mySurvey.rating_deliverables },
-                { label: 'Material',        value: mySurvey.rating_material },
-                { label: 'Resources',       value: mySurvey.rating_resources },
-                { label: 'Overall',         value: mySurvey.rating_overall },
+                { label: 'Monday Sessions', rating: mySurvey.rating_monday_sessions, comment: mySurvey.feedback_monday_sessions },
+                { label: 'Deliverables',    rating: mySurvey.rating_deliverables,    comment: mySurvey.feedback_deliverables },
+                { label: 'Material',        rating: mySurvey.rating_material,        comment: mySurvey.feedback_material },
+                { label: 'Resources',       rating: mySurvey.rating_resources,       comment: mySurvey.feedback_resources },
+                { label: 'Overall',         rating: mySurvey.rating_overall,         comment: mySurvey.feedback_overall },
               ] as const).map(item => (
-                <div key={item.label} className="bg-gray-50 rounded-lg px-2 py-2 text-center">
-                  <p className="text-[10px] font-medium text-gray-500 mb-0.5">{item.label}</p>
-                  <p className="text-yellow-500 text-sm leading-none">
-                    {'★'.repeat(item.value ?? 0)}<span className="text-gray-200">{'★'.repeat(5 - (item.value ?? 0))}</span>
-                  </p>
+                <div key={item.label} className="flex items-start gap-3 bg-gray-50 rounded-lg px-3 py-2">
+                  <div className="w-28 shrink-0">
+                    <p className="text-[10px] font-semibold text-gray-500">{item.label}</p>
+                    <p className="text-yellow-500 text-sm leading-none mt-0.5">
+                      {'★'.repeat(item.rating ?? 0)}<span className="text-gray-200">{'★'.repeat(5 - (item.rating ?? 0))}</span>
+                    </p>
+                  </div>
+                  {item.comment ? (
+                    <p className="text-xs text-gray-600 italic flex-1">&ldquo;{item.comment}&rdquo;</p>
+                  ) : (
+                    <p className="text-xs text-gray-300 flex-1">No written comment</p>
+                  )}
                 </div>
               ))}
             </div>
+            {/* Open-ended answers */}
+            {(mySurvey.wants_to_dig_deeper || mySurvey.wants_to_explore || mySurvey.feels_confident_about) && (
+              <div className="border-t border-border pt-3 space-y-2">
+                {([
+                  { label: 'Wants to dig deeper into', value: mySurvey.wants_to_dig_deeper },
+                  { label: 'Wants to explore',         value: mySurvey.wants_to_explore },
+                  { label: 'Feels confident about',    value: mySurvey.feels_confident_about },
+                ] as const).filter(item => item.value).map(item => (
+                  <div key={item.label}>
+                    <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">{item.label}</p>
+                    <p className="text-xs text-gray-700 mt-0.5">{item.value}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -5,11 +5,31 @@ import { useRouter } from 'next/navigation'
 import { assignSurvey, deleteSurveyResponse, createSurveyRound, setActiveSurvey } from '@/lib/actions/survey'
 
 const CATEGORIES = [
-  { key: 'monday_sessions', label: 'Monday Sessions' },
-  { key: 'deliverables',    label: 'Deliverables' },
-  { key: 'material',        label: 'Material' },
-  { key: 'resources',       label: 'Resources' },
-  { key: 'overall',         label: 'Overall' },
+  {
+    key: 'monday_sessions',
+    label: 'Monday Sessions',
+    question: 'How are the live sessions working for you?',
+  },
+  {
+    key: 'deliverables',
+    label: 'Deliverables',
+    question: 'How are you finding the assignments and deliverables?',
+  },
+  {
+    key: 'material',
+    label: 'Material Presented',
+    question: 'How useful and clear is the content and curriculum?',
+  },
+  {
+    key: 'resources',
+    label: 'Resources',
+    question: 'How valuable are the resources we\'ve provided?',
+  },
+  {
+    key: 'overall',
+    label: 'Overall Experience',
+    question: 'How would you rate your experience in the program so far?',
+  },
 ] as const
 
 type CategoryKey = typeof CATEGORIES[number]['key']
@@ -66,21 +86,22 @@ function calcDist(responses: SurveyResponseWithProfile[], key: `rating_${Categor
   return counts
 }
 
-function barColor(avg: number) {
-  if (avg >= 4) return 'bg-green-500'
-  if (avg >= 3) return 'bg-yellow-500'
-  return 'bg-red-500'
+function respondentName(r: SurveyResponseWithProfile): string {
+  return r.profiles?.full_name || r.profiles?.email || 'Unknown'
 }
 
-function Stars({ rating }: { rating: number | null }) {
-  if (!rating) return <span className="text-gray-300 text-xs">—</span>
+function Stars({ rating, size = 'sm' }: { rating: number | null; size?: 'sm' | 'md' }) {
+  if (rating === null || rating === 0) return <span className="text-gray-300 text-xs">—</span>
+  const cls = size === 'md' ? 'text-base' : 'text-sm'
   return (
-    <span className="text-yellow-500 text-sm leading-none">
-      {'★'.repeat(rating)}
+    <span className={`${cls} leading-none`}>
+      <span className="text-yellow-400">{'★'.repeat(rating)}</span>
       <span className="text-gray-200">{'★'.repeat(5 - rating)}</span>
     </span>
   )
 }
+
+const RATING_LABELS: Record<number, string> = { 1: 'Poor', 2: 'Fair', 3: 'Good', 4: 'Great', 5: 'Excellent' }
 
 // ─── Delete confirm dialog ────────────────────────────────────────────────────
 function DeleteConfirmDialog({
@@ -169,11 +190,13 @@ export default function AdminSurveyTab({
   // Assignment selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
+  // Results view: 'by-category' or 'by-person'
+  const [resultsView, setResultsView] = useState<'by-category' | 'by-person'>('by-category')
+
   // Filter responses to the viewed round
   const roundResponses = responses.filter(r => r.survey_id === viewingSurveyId)
   const completedIds = new Set(roundResponses.map(r => r.user_id))
 
-  // ALL users (including admins) can be assigned
   const allUsers = users
   const totalAssignable = allUsers.length
 
@@ -443,162 +466,41 @@ export default function AdminSurveyTab({
         </div>
       </div>
 
-      {/* ── Average ratings ────────────────────────────────────────────────── */}
+      {/* ── Results ────────────────────────────────────────────────────────── */}
       {roundResponses.length > 0 && (
-        <>
-          <div className="bg-white border border-border rounded-xl p-5">
-            <h3 className="text-sm font-semibold text-gray-900 mb-5">Average Ratings</h3>
-            <div className="space-y-5">
-              {CATEGORIES.map(cat => {
-                const ratingKey = `rating_${cat.key}` as `rating_${CategoryKey}`
-                const average = calcAvg(roundResponses, ratingKey)
-                const dist    = calcDist(roundResponses, ratingKey)
-                const maxDist = Math.max(...dist, 1)
-
-                return (
-                  <div key={cat.key}>
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm text-gray-700 w-36 shrink-0">{cat.label}</span>
-                      <div className="flex-1 bg-gray-100 rounded-full h-2.5">
-                        {average !== null && (
-                          <div
-                            className={`${barColor(average)} h-2.5 rounded-full transition-all duration-500`}
-                            style={{ width: `${(average / 5) * 100}%` }}
-                          />
-                        )}
-                      </div>
-                      <span className="text-sm font-bold text-gray-800 w-10 text-right shrink-0">
-                        {average !== null ? average.toFixed(1) : '—'}
-                      </span>
-                    </div>
-                    <div className="flex items-end gap-1 mt-2 ml-36 pl-3 h-8">
-                      {dist.map((count, i) => {
-                        const heightPct = (count / maxDist) * 100
-                        const isZero = count === 0
-                        return (
-                          <div key={i} className="flex flex-col items-center gap-0.5 flex-1" title={`${i + 1}★: ${count}`}>
-                            <div className="w-full relative" style={{ height: '24px' }}>
-                              <div
-                                className={`absolute bottom-0 w-full rounded-t transition-all ${
-                                  isZero ? 'bg-gray-100' :
-                                  i + 1 >= 4 ? 'bg-green-400' :
-                                  i + 1 === 3 ? 'bg-yellow-400' :
-                                  'bg-red-400'
-                                }`}
-                                style={{ height: isZero ? '3px' : `${heightPct}%` }}
-                              />
-                            </div>
-                            <span className="text-[9px] text-gray-400">{i + 1}★</span>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* ── Individual responses ──────────────────────────────────────────── */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">
-              {roundResponses.length} Individual Response{roundResponses.length !== 1 ? 's' : ''}
+        <div className="space-y-6">
+          {/* View toggle */}
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-900">
+              Results — {roundResponses.length} response{roundResponses.length !== 1 ? 's' : ''}
             </h3>
-            <div className="space-y-2">
-              {roundResponses.map(r => {
-                const isExpanded = expandedId === r.id
-                const name = r.profiles?.full_name || r.profiles?.email || 'Unknown'
-                const date = new Date(r.created_at).toLocaleDateString('en-US', {
-                  month: 'short', day: 'numeric', year: 'numeric',
-                })
-
-                return (
-                  <div key={r.id} className="bg-white border border-border rounded-xl overflow-hidden">
-                    <div className="flex items-stretch">
-                      <button
-                        onClick={() => setExpandedId(isExpanded ? null : r.id)}
-                        className="flex-1 text-left px-5 py-4 hover:bg-gray-50 transition-colors"
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900 truncate">{name}</p>
-                            <div className="flex flex-wrap gap-3 mt-1.5">
-                              {CATEGORIES.map(cat => (
-                                <div key={cat.key} className="flex items-center gap-1">
-                                  <span className="text-[10px] text-muted">{cat.label.split(' ')[0]}:</span>
-                                  <Stars rating={r[`rating_${cat.key}`]} />
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-xs text-muted">{date}</span>
-                            <svg className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                          </div>
-                        </div>
-                      </button>
-                      <button
-                        onClick={() => r.survey_id && setDeleteTarget({ userId: r.user_id, surveyId: r.survey_id, name })}
-                        disabled={!r.survey_id}
-                        className="px-4 border-l border-border text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-                        title="Delete response"
-                      >
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                    </div>
-
-                    {isExpanded && (
-                      <div className="border-t border-border bg-gray-50 px-5 py-5 space-y-5">
-                        <div>
-                          <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-3">Ratings &amp; Comments</p>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            {CATEGORIES.map(cat => {
-                              const rating   = r[`rating_${cat.key}`]
-                              const feedback = r[`feedback_${cat.key}`]
-                              return (
-                                <div key={cat.key} className="bg-white border border-border rounded-lg p-3 space-y-1.5">
-                                  <div className="flex items-center justify-between gap-2">
-                                    <span className="text-xs font-medium text-gray-700">{cat.label}</span>
-                                    <Stars rating={rating} />
-                                  </div>
-                                  {feedback
-                                    ? <p className="text-xs text-muted italic">&ldquo;{feedback}&rdquo;</p>
-                                    : <p className="text-xs text-gray-300">No comment</p>
-                                  }
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </div>
-                        <div>
-                          <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-3">Open Answers</p>
-                          <div className="space-y-2">
-                            {([
-                              { label: 'Wants to dig deeper into', value: r.wants_to_dig_deeper },
-                              { label: 'Wants to explore',         value: r.wants_to_explore },
-                              { label: 'Feels confident about',    value: r.feels_confident_about },
-                            ] as const).map(item => (
-                              <div key={item.label} className="bg-white border border-border rounded-lg p-3">
-                                <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-1">{item.label}</p>
-                                <p className="text-xs text-gray-700">
-                                  {item.value || <span className="text-gray-300 italic">No response</span>}
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">
+              <button
+                onClick={() => setResultsView('by-category')}
+                className={`px-3 py-1.5 transition-colors ${resultsView === 'by-category' ? 'bg-primary text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              >
+                By Question
+              </button>
+              <button
+                onClick={() => setResultsView('by-person')}
+                className={`px-3 py-1.5 transition-colors border-l border-gray-200 ${resultsView === 'by-person' ? 'bg-primary text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              >
+                By Person
+              </button>
             </div>
           </div>
-        </>
+
+          {resultsView === 'by-category' ? (
+            <ByCategoryView responses={roundResponses} />
+          ) : (
+            <ByPersonView
+              responses={roundResponses}
+              expandedId={expandedId}
+              onExpand={id => setExpandedId(expandedId === id ? null : id)}
+              onDelete={(userId, surveyId, name) => setDeleteTarget({ userId, surveyId, name })}
+            />
+          )}
+        </div>
       )}
 
       {roundResponses.length === 0 && (
@@ -606,6 +508,291 @@ export default function AdminSurveyTab({
           No responses yet for this survey round.
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── By-Category view ─────────────────────────────────────────────────────────
+function ByCategoryView({ responses }: { responses: SurveyResponseWithProfile[] }) {
+  const [expandedKey, setExpandedKey] = useState<string | null>(null)
+
+  const openQuestions = [
+    { key: 'wants_to_dig_deeper', label: 'What would you like to dig deeper into?' },
+    { key: 'wants_to_explore',    label: 'What would you like to explore?' },
+    { key: 'feels_confident_about', label: 'What are you feeling confident about right now?' },
+  ] as const
+
+  return (
+    <div className="space-y-4">
+      {/* Rated categories */}
+      {CATEGORIES.map(cat => {
+        const ratingKey = `rating_${cat.key}` as `rating_${CategoryKey}`
+        const feedbackKey = `feedback_${cat.key}` as `feedback_${CategoryKey}`
+        const average = calcAvg(responses, ratingKey)
+        const dist    = calcDist(responses, ratingKey)
+        const maxDist = Math.max(...dist, 1)
+        const isExpanded = expandedKey === cat.key
+
+        // Responses that have a comment for this category
+        const commentsWithAuthor = responses
+          .map(r => ({
+            name: respondentName(r),
+            rating: r[ratingKey],
+            comment: r[feedbackKey],
+          }))
+          .filter(c => c.comment && c.comment.trim())
+
+        return (
+          <div key={cat.key} className="bg-white border border-border rounded-xl overflow-hidden">
+            {/* Header row */}
+            <button
+              onClick={() => setExpandedKey(isExpanded ? null : cat.key)}
+              className="w-full text-left px-5 py-4 hover:bg-gray-50 transition-colors"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-900">{cat.label}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{cat.question}</p>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  {average !== null && (
+                    <>
+                      <span className="text-lg font-bold text-gray-900">{average.toFixed(1)}</span>
+                      <span className="text-gray-300 text-xs">/5</span>
+                      <span className="text-sm">
+                        <span className="text-yellow-400">{'★'.repeat(Math.round(average))}</span>
+                        <span className="text-gray-200">{'★'.repeat(5 - Math.round(average))}</span>
+                      </span>
+                    </>
+                  )}
+                  <svg className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </div>
+
+              {/* Mini distribution bar — always visible */}
+              <div className="flex items-end gap-1 mt-3 h-6">
+                {dist.map((count, i) => {
+                  const heightPct = (count / maxDist) * 100
+                  return (
+                    <div key={i} className="flex flex-col items-center gap-0.5 flex-1" title={`${i + 1}★: ${count}`}>
+                      <div className="w-full relative" style={{ height: '20px' }}>
+                        <div
+                          className={`absolute bottom-0 w-full rounded-t transition-all ${
+                            count === 0 ? 'bg-gray-100' :
+                            i + 1 >= 4 ? 'bg-green-400' :
+                            i + 1 === 3 ? 'bg-yellow-400' :
+                            'bg-red-400'
+                          }`}
+                          style={{ height: count === 0 ? '3px' : `${heightPct}%` }}
+                        />
+                      </div>
+                      <span className="text-[9px] text-gray-400">{i + 1}★</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </button>
+
+            {/* Expanded: individual ratings + comments */}
+            {isExpanded && (
+              <div className="border-t border-border bg-gray-50 px-5 py-4 space-y-2">
+                <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-3">
+                  Individual responses ({responses.length})
+                </p>
+                {responses.map(r => {
+                  const rating  = r[ratingKey]
+                  const comment = r[feedbackKey]
+                  const name    = respondentName(r)
+                  return (
+                    <div key={r.id} className="bg-white border border-border rounded-lg px-4 py-3 flex gap-3 items-start">
+                      <div className="shrink-0 w-28">
+                        <p className="text-xs font-medium text-gray-800 truncate" title={name}>{name}</p>
+                        <div className="mt-0.5">
+                          <Stars rating={rating} />
+                        </div>
+                        {rating !== null && (
+                          <p className="text-[10px] text-gray-400 mt-0.5">{RATING_LABELS[rating] ?? ''}</p>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        {comment && comment.trim() ? (
+                          <p className="text-xs text-gray-700 italic">&ldquo;{comment}&rdquo;</p>
+                        ) : (
+                          <p className="text-xs text-gray-300 italic">No comment left</p>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+
+                {commentsWithAuthor.length === 0 && (
+                  <p className="text-xs text-gray-400 text-center py-2">No written comments for this category.</p>
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })}
+
+      {/* Open-ended questions */}
+      <div className="bg-white border border-border rounded-xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-border">
+          <p className="text-sm font-semibold text-gray-900">Qualitative Answers</p>
+          <p className="text-xs text-gray-500 mt-0.5">Open-ended responses, attributed to each respondent</p>
+        </div>
+        <div className="divide-y divide-border">
+          {openQuestions.map(q => {
+            const answers = responses
+              .map(r => ({ name: respondentName(r), value: r[q.key] }))
+              .filter(a => a.value && a.value.trim())
+
+            return (
+              <div key={q.key} className="px-5 py-4 space-y-3">
+                <p className="text-xs font-semibold text-gray-700">{q.label}</p>
+                {answers.length > 0 ? (
+                  <div className="space-y-2">
+                    {answers.map((a, i) => (
+                      <div key={i} className="flex gap-3 items-start">
+                        <span className="shrink-0 text-[10px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full mt-0.5 whitespace-nowrap">
+                          {a.name}
+                        </span>
+                        <p className="text-xs text-gray-700 flex-1">{a.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-300 italic">No responses yet.</p>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── By-Person view ────────────────────────────────────────────────────────────
+function ByPersonView({
+  responses,
+  expandedId,
+  onExpand,
+  onDelete,
+}: {
+  responses: SurveyResponseWithProfile[]
+  expandedId: string | null
+  onExpand: (id: string) => void
+  onDelete: (userId: string, surveyId: string, name: string) => void
+}) {
+  return (
+    <div className="space-y-2">
+      {responses.map(r => {
+        const isExpanded = expandedId === r.id
+        const name = respondentName(r)
+        const date = new Date(r.created_at).toLocaleDateString('en-US', {
+          month: 'short', day: 'numeric', year: 'numeric',
+        })
+
+        return (
+          <div key={r.id} className="bg-white border border-border rounded-xl overflow-hidden">
+            <div className="flex items-stretch">
+              <button
+                onClick={() => onExpand(r.id)}
+                className="flex-1 text-left px-5 py-4 hover:bg-gray-50 transition-colors"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{name}</p>
+                    <div className="flex flex-wrap gap-3 mt-1.5">
+                      {CATEGORIES.map(cat => (
+                        <div key={cat.key} className="flex items-center gap-1">
+                          <span className="text-[10px] text-muted">{cat.label.split(' ')[0]}:</span>
+                          <Stars rating={r[`rating_${cat.key}`]} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-muted">{date}</span>
+                    <svg className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </div>
+              </button>
+              <button
+                onClick={() => r.survey_id && onDelete(r.user_id, r.survey_id, name)}
+                disabled={!r.survey_id}
+                className="px-4 border-l border-border text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                title="Delete response"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
+
+            {isExpanded && (
+              <div className="border-t border-border bg-gray-50 px-5 py-5 space-y-5">
+                {/* Ratings & Comments per category */}
+                <div>
+                  <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-3">Ratings &amp; Comments</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {CATEGORIES.map(cat => {
+                      const rating   = r[`rating_${cat.key}`]
+                      const feedback = r[`feedback_${cat.key}`]
+                      return (
+                        <div key={cat.key} className="bg-white border border-border rounded-lg p-3 space-y-1.5">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-xs font-semibold text-gray-800">{cat.label}</p>
+                              <p className="text-[10px] text-gray-400 mt-0.5">{cat.question}</p>
+                            </div>
+                            <div className="shrink-0 flex flex-col items-end">
+                              <Stars rating={rating} size="md" />
+                              {rating !== null && (
+                                <span className="text-[10px] text-gray-400 mt-0.5">{RATING_LABELS[rating]}</span>
+                              )}
+                            </div>
+                          </div>
+                          {feedback && feedback.trim()
+                            ? <p className="text-xs text-gray-600 italic border-t border-gray-100 pt-1.5">&ldquo;{feedback}&rdquo;</p>
+                            : <p className="text-xs text-gray-300 border-t border-gray-100 pt-1.5">No written comment</p>
+                          }
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Open-ended answers */}
+                <div>
+                  <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-3">Open Answers</p>
+                  <div className="space-y-2">
+                    {([
+                      { label: 'Wants to dig deeper into',   value: r.wants_to_dig_deeper },
+                      { label: 'Wants to explore',           value: r.wants_to_explore },
+                      { label: 'Feels confident about',      value: r.feels_confident_about },
+                    ] as const).map(item => (
+                      <div key={item.label} className="bg-white border border-border rounded-lg p-3">
+                        <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-1">{item.label}</p>
+                        <p className="text-xs text-gray-700">
+                          {item.value && item.value.trim()
+                            ? item.value
+                            : <span className="text-gray-300 italic">No response</span>
+                          }
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }

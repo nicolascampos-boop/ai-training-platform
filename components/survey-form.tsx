@@ -68,15 +68,16 @@ function StarRating({
             className="text-3xl leading-none transition-transform hover:scale-110 focus:outline-none"
             aria-label={`Rate ${star} out of 5`}
           >
-            <span className={active >= star ? 'text-yellow-400' : 'text-gray-600'}>
+            <span className={active >= star ? 'text-yellow-400' : 'text-gray-300'}>
               ★
             </span>
           </button>
         ))}
       </div>
-      {active > 0 && (
-        <span className="text-xs text-gray-400 w-16">{RATING_LABELS[active]}</span>
-      )}
+      {/* Fixed-width label — always rendered to prevent layout shift */}
+      <span className={`text-xs w-16 ${active > 0 ? 'text-gray-500' : 'invisible'}`}>
+        {RATING_LABELS[active] ?? ''}
+      </span>
     </div>
   )
 }
@@ -142,10 +143,10 @@ export default function SurveyForm({ surveyId, surveyTitle }: { surveyId: string
       {/* Header */}
       <div className="text-center space-y-3 pt-4">
         <div className="text-4xl">👋</div>
-        <h1 className="text-2xl font-bold text-gray-100">
+        <h1 className="text-2xl font-bold text-gray-900">
           {surveyTitle}
         </h1>
-        <p className="text-gray-400 max-w-md mx-auto">
+        <p className="text-gray-500 max-w-md mx-auto">
           Take a moment to share how your experience has been going.
           Your honest feedback helps us shape the program.
         </p>
@@ -153,18 +154,18 @@ export default function SurveyForm({ surveyId, surveyTitle }: { surveyId: string
 
       {/* Rating Section */}
       <div className="space-y-4">
-        <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
           How are we doing?
         </h2>
         {RATING_CATEGORIES.map((cat) => (
           <div
             key={cat.key}
-            className="bg-gray-800/40 border border-gray-700/50 rounded-xl p-5 space-y-3"
+            className="bg-white border border-gray-200 rounded-xl p-5 space-y-3 shadow-sm"
           >
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-gray-100">{cat.label}</p>
-                <p className="text-sm text-gray-400 mt-0.5">{cat.description}</p>
+                <p className="font-medium text-gray-900">{cat.label}</p>
+                <p className="text-sm text-gray-500 mt-0.5">{cat.description}</p>
               </div>
               <div className="shrink-0">
                 <StarRating
@@ -182,7 +183,7 @@ export default function SurveyForm({ surveyId, surveyTitle }: { surveyId: string
               }
               placeholder="Any specific thoughts? (optional)"
               rows={2}
-              className="w-full bg-gray-900/60 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-500 resize-none focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+              className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 placeholder-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/40 transition-colors"
             />
           </div>
         ))}
@@ -190,12 +191,12 @@ export default function SurveyForm({ surveyId, surveyTitle }: { surveyId: string
 
       {/* Open-ended Section */}
       <div className="space-y-5">
-        <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
           Tell us more
         </h2>
 
         <div className="space-y-2">
-          <label className="block text-sm font-medium text-gray-300">
+          <label className="block text-sm font-medium text-gray-700">
             What would you like to dig deeper into?
           </label>
           <textarea
@@ -203,12 +204,12 @@ export default function SurveyForm({ surveyId, surveyTitle }: { surveyId: string
             onChange={(e) => setDigDeeper(e.target.value)}
             placeholder="Topics or concepts you'd like to explore in more depth..."
             rows={3}
-            className="w-full bg-gray-800/40 border border-gray-700/50 rounded-xl px-4 py-3 text-sm text-gray-200 placeholder-gray-500 resize-none focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+            className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-800 placeholder-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/40 transition-colors shadow-sm"
           />
         </div>
 
         <div className="space-y-2">
-          <label className="block text-sm font-medium text-gray-300">
+          <label className="block text-sm font-medium text-gray-700">
             What would you like to explore?
           </label>
           <textarea
@@ -216,12 +217,12 @@ export default function SurveyForm({ surveyId, surveyTitle }: { surveyId: string
             onChange={(e) => setExplore(e.target.value)}
             placeholder="New areas, tools, or directions you're curious about..."
             rows={3}
-            className="w-full bg-gray-800/40 border border-gray-700/50 rounded-xl px-4 py-3 text-sm text-gray-200 placeholder-gray-500 resize-none focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+            className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-800 placeholder-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/40 transition-colors shadow-sm"
           />
         </div>
 
         <div className="space-y-2">
-          <label className="block text-sm font-medium text-gray-300">
+          <label className="block text-sm font-medium text-gray-700">
             What are you feeling confident about right now?
           </label>
           <textarea
@@ -229,25 +230,25 @@ export default function SurveyForm({ surveyId, surveyTitle }: { surveyId: string
             onChange={(e) => setConfident(e.target.value)}
             placeholder="Skills, concepts, or areas where you're feeling solid..."
             rows={3}
-            className="w-full bg-gray-800/40 border border-gray-700/50 rounded-xl px-4 py-3 text-sm text-gray-200 placeholder-gray-500 resize-none focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+            className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-800 placeholder-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/40 transition-colors shadow-sm"
           />
         </div>
       </div>
 
       {error && (
-        <p className="text-red-400 text-sm text-center">{error}</p>
+        <p className="text-red-600 text-sm text-center bg-red-50 border border-red-200 rounded-lg px-4 py-2">{error}</p>
       )}
 
       <div className="space-y-3">
         <button
           type="submit"
           disabled={isPending}
-          className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-semibold py-3.5 rounded-xl transition-colors"
+          className="w-full bg-primary hover:bg-primary/90 disabled:bg-gray-200 disabled:text-gray-400 text-white font-semibold py-3.5 rounded-xl transition-colors"
         >
           {isPending ? 'Submitting...' : 'Submit & Continue'}
         </button>
         {!allRated && (
-          <p className="text-center text-xs text-gray-500">
+          <p className="text-center text-xs text-gray-400">
             Please rate all five categories to submit
           </p>
         )}
