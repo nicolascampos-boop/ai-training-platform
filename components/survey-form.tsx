@@ -107,11 +107,16 @@ export default function SurveyForm({ surveyId, surveyTitle }: { surveyId: string
   const [confident, setConfident] = useState('')
 
   const allRated = Object.values(ratings).every((r) => r > 0)
+  const allAnswered = allRated && digDeeper.trim() !== '' && explore.trim() !== '' && confident.trim() !== ''
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!allRated) {
       setError('Please rate all five categories before submitting.')
+      return
+    }
+    if (!allAnswered) {
+      setError('Please answer all three open-ended questions before submitting.')
       return
     }
     setError(null)
@@ -242,14 +247,16 @@ export default function SurveyForm({ surveyId, surveyTitle }: { surveyId: string
       <div className="space-y-3">
         <button
           type="submit"
-          disabled={isPending}
+          disabled={isPending || !allAnswered}
           className="w-full bg-primary hover:bg-primary/90 disabled:bg-gray-200 disabled:text-gray-400 text-white font-semibold py-3.5 rounded-xl transition-colors"
         >
           {isPending ? 'Submitting...' : 'Submit & Continue'}
         </button>
-        {!allRated && (
+        {!allAnswered && (
           <p className="text-center text-xs text-gray-400">
-            Please rate all five categories to submit
+            {!allRated
+              ? 'Rate all five categories and answer all three questions to submit'
+              : 'Answer all three open-ended questions to submit'}
           </p>
         )}
       </div>

@@ -36,7 +36,7 @@ interface AdminPanelProps {
 }
 
 export default function AdminPanel({ users, materials, orphanedUsers, progressData, engagementData, surveyResponses, surveys }: AdminPanelProps) {
-  const [tab, setTab] = useState<'users' | 'materials' | 'progress' | 'engagement' | 'survey'>('users')
+  const [tab, setTab] = useState<'users' | 'materials' | 'progress' | 'survey'>('users')
 
   return (
     <div>
@@ -72,14 +72,6 @@ export default function AdminPanel({ users, materials, orphanedUsers, progressDa
           Progress
         </button>
         <button
-          onClick={() => setTab('engagement')}
-          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-            tab === 'engagement' ? 'bg-white shadow text-gray-900' : 'text-muted hover:text-gray-700'
-          }`}
-        >
-          Engagement
-        </button>
-        <button
           onClick={() => setTab('survey')}
           className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
             tab === 'survey' ? 'bg-white shadow text-gray-900' : 'text-muted hover:text-gray-700'
@@ -106,9 +98,7 @@ export default function AdminPanel({ users, materials, orphanedUsers, progressDa
           users={users.map(u => ({ id: u.id, email: u.email, full_name: u.full_name, role: u.role, survey_required: u.survey_required }))}
           surveys={surveys}
         />
-      ) : (
-        <UnifiedProgressView users={users} progressData={progressData} views={engagementData.views} />
-      )}
+      ) : null}
     </div>
   )
 }
