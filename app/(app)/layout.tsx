@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { headers } from 'next/headers'
 import Sidebar from '@/components/sidebar'
 
 export default async function AppLayout({
@@ -41,6 +42,21 @@ export default async function AppLayout({
       .update({ last_login: new Date().toISOString() })
       .eq('id', user.id)
       .then(() => {}) // Silently ignore errors
+  }
+
+  // Survey gate: non-admins must complete the survey before accessing any page
+  const h = await headers()
+  const pathname = h.get('x-pathname') ?? ''
+  const isOnSurveyPage = pathname === '/survey'
+
+  if (profile.role !== 'admin' && !isOnSurveyPage) {
+    const { data: surveyDone } = await supabase
+      .from('survey_responses')
+      .select('id')
+      .eq('user_id', user.id)
+      .single()
+
+    if (!surveyDone) redirect('/survey')
   }
 
   return (
