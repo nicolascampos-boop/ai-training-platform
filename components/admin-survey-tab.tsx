@@ -540,7 +540,8 @@ export default function AdminSurveyTab({
                         </div>
                       </button>
                       <button
-                        onClick={() => setDeleteTarget({ userId: r.user_id, surveyId: r.survey_id!, name })}
+                        onClick={() => r.survey_id && setDeleteTarget({ userId: r.user_id, surveyId: r.survey_id, name })}
+                        disabled={!r.survey_id}
                         className="px-4 border-l border-border text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
                         title="Delete response"
                       >

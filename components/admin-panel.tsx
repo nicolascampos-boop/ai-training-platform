@@ -101,7 +101,11 @@ export default function AdminPanel({ users, materials, orphanedUsers, progressDa
       ) : tab === 'progress' ? (
         <UnifiedProgressView users={users} progressData={progressData} views={engagementData.views} />
       ) : tab === 'survey' ? (
-        <AdminSurveyTab responses={surveyResponses} users={users as UserForSurvey[]} surveys={surveys} />
+        <AdminSurveyTab
+          responses={surveyResponses}
+          users={users.map(u => ({ id: u.id, email: u.email, full_name: u.full_name, role: u.role, survey_required: u.survey_required }))}
+          surveys={surveys}
+        />
       ) : (
         <UnifiedProgressView users={users} progressData={progressData} views={engagementData.views} />
       )}
