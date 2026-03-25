@@ -50,13 +50,22 @@ export default async function AppLayout({
   const isOnSurveyPage = pathname === '/survey'
 
   if (profile.survey_required && !isOnSurveyPage) {
-    const { data: surveyDone } = await supabase
-      .from('survey_responses')
+    const { data: activeSurvey } = await supabase
+      .from('surveys')
       .select('id')
-      .eq('user_id', user.id)
+      .eq('is_active', true)
       .single()
 
-    if (!surveyDone) redirect('/survey')
+    if (activeSurvey) {
+      const { data: surveyDone } = await supabase
+        .from('survey_responses')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('survey_id', activeSurvey.id)
+        .single()
+
+      if (!surveyDone) redirect('/survey')
+    }
   }
 
   return (

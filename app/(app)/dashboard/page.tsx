@@ -41,7 +41,7 @@ export default async function DashboardPage() {
     supabase.from('materials').select('*', { count: 'exact', head: true }),
     supabase.from('votes').select('material_id, created_at').gte('created_at', weekAgo.toISOString()).order('created_at', { ascending: false }),
     supabase.from('material_scores').select('*').gt('vote_count', 0).order('avg_overall', { ascending: false }).limit(8),
-    supabase.from('survey_responses').select('*').eq('user_id', user!.id).maybeSingle(),
+    supabase.from('survey_responses').select('*').eq('user_id', user!.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
   ])
 
   const userReviewedIds = new Set((userVotes ?? []).map(v => v.material_id))
