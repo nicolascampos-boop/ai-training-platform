@@ -13,7 +13,7 @@ const RATING_CATEGORIES: RatingCategory[] = [
   {
     key: 'monday_sessions',
     label: 'Weekly Sessions',
-    description: 'Are the sessions helping you build a clearer understanding of how AI works in practice?',
+    description: 'Are the sessions guiding you to test and deepen your understanding of how AI can be integrated into your work and day-to-day?',
   },
   {
     key: 'deliverables',
@@ -23,17 +23,17 @@ const RATING_CATEGORIES: RatingCategory[] = [
   {
     key: 'material',
     label: 'Curriculum',
-    description: 'Is the curriculum providing a solid foundation to explore AI effectively across different contexts?',
+    description: 'Is the curriculum providing a broader perspective to explore the effects of AI in the work environment and across different contexts?',
   },
   {
     key: 'resources',
     label: 'Resources',
-    description: 'Are the resources enabling you to go beyond a single tool and experiment broadly with AI?',
+    description: 'Are the resources enabling you to go beyond a single tool and experiment broadly with AI and all its capabilities?',
   },
   {
     key: 'overall',
     label: 'Overall',
-    description: 'Overall, is this program helping you develop practical AI capabilities and a deeper understanding of the technology?',
+    description: 'Overall, is this program helping you develop a deeper and more up-to-date AI knowledge and understanding of how it connects with your work?',
   },
 ]
 
@@ -223,7 +223,7 @@ export default function SurveyForm({ surveyId, surveyTitle }: { surveyId: string
 
         <div className="space-y-2">
           <label className="block text-sm font-medium text-gray-700">
-            In which areas do you feel your understanding or capability has most improved?
+            In which areas do you feel your understanding or capabilities have most improved?
           </label>
           <textarea
             value={confident}

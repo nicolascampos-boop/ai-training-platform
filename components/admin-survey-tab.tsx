@@ -8,7 +8,7 @@ const CATEGORIES = [
   {
     key: 'monday_sessions',
     label: 'Weekly Sessions',
-    question: 'Are the sessions helping you build a clearer understanding of how AI works in practice?',
+    question: 'Are the sessions guiding you to test and deepen your understanding of how AI can be integrated into your work and day-to-day?',
   },
   {
     key: 'deliverables',
@@ -18,17 +18,17 @@ const CATEGORIES = [
   {
     key: 'material',
     label: 'Curriculum',
-    question: 'Is the curriculum providing a solid foundation to explore AI effectively across different contexts?',
+    question: 'Is the curriculum providing a broader perspective to explore the effects of AI in the work environment and across different contexts?',
   },
   {
     key: 'resources',
     label: 'Resources',
-    question: 'Are the resources enabling you to go beyond a single tool and experiment broadly with AI?',
+    question: 'Are the resources enabling you to go beyond a single tool and experiment broadly with AI and all its capabilities?',
   },
   {
     key: 'overall',
     label: 'Overall',
-    question: 'Overall, is this program helping you develop practical AI capabilities and a deeper understanding of the technology?',
+    question: 'Overall, is this program helping you develop a deeper and more up-to-date AI knowledge and understanding of how it connects with your work?',
   },
 ] as const
 
@@ -522,7 +522,7 @@ function ByCategoryView({ responses }: { responses: SurveyResponseWithProfile[] 
   const openQuestions = [
     { key: 'wants_to_dig_deeper',   label: 'Which AI concepts, tools, or applications would you like to explore in greater depth?' },
     { key: 'wants_to_explore',      label: 'What new AI tools, experiments, or directions would you like the program to incorporate?' },
-    { key: 'feels_confident_about', label: 'In which areas do you feel your understanding or capability has most improved?' },
+    { key: 'feels_confident_about', label: 'In which areas do you feel your understanding or capabilities have most improved?' },
   ] as const
 
   return (
@@ -775,9 +775,9 @@ function ByPersonView({
                   <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-3">Open Answers</p>
                   <div className="space-y-2">
                     {([
-                      { label: 'Wants to explore in greater depth', value: r.wants_to_dig_deeper },
-                      { label: 'Wants the program to incorporate',  value: r.wants_to_explore },
-                      { label: 'Feels most improved in',            value: r.feels_confident_about },
+                      { label: 'Would like to explore in greater depth', value: r.wants_to_dig_deeper },
+                      { label: 'Would like the program to incorporate',  value: r.wants_to_explore },
+                      { label: 'Feels most improved in',                 value: r.feels_confident_about },
                     ] as const).map(item => (
                       <div key={item.label} className="bg-white border border-border rounded-lg p-3">
                         <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-1">{item.label}</p>
