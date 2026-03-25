@@ -12,28 +12,28 @@ interface RatingCategory {
 const RATING_CATEGORIES: RatingCategory[] = [
   {
     key: 'monday_sessions',
-    label: 'Monday Sessions',
-    description: 'How are the live sessions working for you?',
+    label: 'Weekly Sessions',
+    description: 'Are the sessions helping you build a clearer understanding of how AI works in practice?',
   },
   {
     key: 'deliverables',
-    label: 'Deliverables',
-    description: 'How are you finding the assignments and deliverables?',
+    label: 'Assignments',
+    description: 'Are the assignments giving you meaningful hands-on experience to experiment with AI tools?',
   },
   {
     key: 'material',
-    label: 'Material Presented',
-    description: 'How useful and clear is the content and curriculum?',
+    label: 'Curriculum',
+    description: 'Is the curriculum providing a solid foundation to explore AI effectively across different contexts?',
   },
   {
     key: 'resources',
     label: 'Resources',
-    description: 'How valuable are the resources we\'ve provided?',
+    description: 'Are the resources enabling you to go beyond a single tool and experiment broadly with AI?',
   },
   {
     key: 'overall',
-    label: 'Overall Experience',
-    description: 'How would you rate your experience in the program so far?',
+    label: 'Overall',
+    description: 'Overall, is this program helping you develop practical AI capabilities and a deeper understanding of the technology?',
   },
 ]
 
@@ -197,12 +197,12 @@ export default function SurveyForm({ surveyId, surveyTitle }: { surveyId: string
 
         <div className="space-y-2">
           <label className="block text-sm font-medium text-gray-700">
-            What would you like to dig deeper into?
+            Which AI concepts, tools, or applications would you like to explore in greater depth?
           </label>
           <textarea
             value={digDeeper}
             onChange={(e) => setDigDeeper(e.target.value)}
-            placeholder="Topics or concepts you'd like to explore in more depth..."
+            placeholder="e.g. prompt engineering, specific AI models, practical use cases..."
             rows={3}
             className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-800 placeholder-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/40 transition-colors shadow-sm"
           />
@@ -210,12 +210,12 @@ export default function SurveyForm({ surveyId, surveyTitle }: { surveyId: string
 
         <div className="space-y-2">
           <label className="block text-sm font-medium text-gray-700">
-            What would you like to explore?
+            What new AI tools, experiments, or directions would you like the program to incorporate?
           </label>
           <textarea
             value={explore}
             onChange={(e) => setExplore(e.target.value)}
-            placeholder="New areas, tools, or directions you're curious about..."
+            placeholder="e.g. new tools to test, workflows to try, areas not yet covered..."
             rows={3}
             className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-800 placeholder-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/40 transition-colors shadow-sm"
           />
@@ -223,12 +223,12 @@ export default function SurveyForm({ surveyId, surveyTitle }: { surveyId: string
 
         <div className="space-y-2">
           <label className="block text-sm font-medium text-gray-700">
-            What are you feeling confident about right now?
+            In which areas do you feel your understanding or capability has most improved?
           </label>
           <textarea
             value={confident}
             onChange={(e) => setConfident(e.target.value)}
-            placeholder="Skills, concepts, or areas where you're feeling solid..."
+            placeholder="e.g. understanding how LLMs work, using AI in my daily workflow..."
             rows={3}
             className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-800 placeholder-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/40 transition-colors shadow-sm"
           />

@@ -264,9 +264,9 @@ export default async function DashboardPage() {
             {(mySurvey.wants_to_dig_deeper || mySurvey.wants_to_explore || mySurvey.feels_confident_about) && (
               <div className="border-t border-border pt-3 space-y-2">
                 {([
-                  { label: 'Wants to dig deeper into', value: mySurvey.wants_to_dig_deeper },
-                  { label: 'Wants to explore',         value: mySurvey.wants_to_explore },
-                  { label: 'Feels confident about',    value: mySurvey.feels_confident_about },
+                  { label: 'Wants to explore in greater depth', value: mySurvey.wants_to_dig_deeper },
+                  { label: 'Wants the program to incorporate',  value: mySurvey.wants_to_explore },
+                  { label: 'Feels most improved in',            value: mySurvey.feels_confident_about },
                 ] as const).filter(item => item.value).map(item => (
                   <div key={item.label}>
                     <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">{item.label}</p>
