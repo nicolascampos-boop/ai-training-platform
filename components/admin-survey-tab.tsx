@@ -7,28 +7,28 @@ import { assignSurvey, deleteSurveyResponse, createSurveyRound, setActiveSurvey 
 const CATEGORIES = [
   {
     key: 'monday_sessions',
-    label: 'Monday Sessions',
-    question: 'How are the live sessions working for you?',
+    label: 'Weekly Sessions',
+    question: 'Are the sessions helping you build a clearer understanding of how AI works in practice?',
   },
   {
     key: 'deliverables',
-    label: 'Deliverables',
-    question: 'How are you finding the assignments and deliverables?',
+    label: 'Assignments',
+    question: 'Are the assignments giving you meaningful hands-on experience to experiment with AI tools?',
   },
   {
     key: 'material',
-    label: 'Material Presented',
-    question: 'How useful and clear is the content and curriculum?',
+    label: 'Curriculum',
+    question: 'Is the curriculum providing a solid foundation to explore AI effectively across different contexts?',
   },
   {
     key: 'resources',
     label: 'Resources',
-    question: 'How valuable are the resources we\'ve provided?',
+    question: 'Are the resources enabling you to go beyond a single tool and experiment broadly with AI?',
   },
   {
     key: 'overall',
-    label: 'Overall Experience',
-    question: 'How would you rate your experience in the program so far?',
+    label: 'Overall',
+    question: 'Overall, is this program helping you develop practical AI capabilities and a deeper understanding of the technology?',
   },
 ] as const
 
@@ -446,6 +446,9 @@ export default function AdminSurveyTab({
               selectedIds={selectedIds}
               onToggle={toggleSelect}
               onToggleAll={() => toggleSelectAll(completedUsers.map(u => u.id))}
+              onDeleteResponse={(userId, name) =>
+                setDeleteTarget({ userId, surveyId: viewingSurveyId, name })
+              }
             />
           )}
           {notAssigned.length > 0 && (
@@ -517,9 +520,9 @@ function ByCategoryView({ responses }: { responses: SurveyResponseWithProfile[] 
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
 
   const openQuestions = [
-    { key: 'wants_to_dig_deeper', label: 'What would you like to dig deeper into?' },
-    { key: 'wants_to_explore',    label: 'What would you like to explore?' },
-    { key: 'feels_confident_about', label: 'What are you feeling confident about right now?' },
+    { key: 'wants_to_dig_deeper',   label: 'Which AI concepts, tools, or applications would you like to explore in greater depth?' },
+    { key: 'wants_to_explore',      label: 'What new AI tools, experiments, or directions would you like the program to incorporate?' },
+    { key: 'feels_confident_about', label: 'In which areas do you feel your understanding or capability has most improved?' },
   ] as const
 
   return (
@@ -772,9 +775,9 @@ function ByPersonView({
                   <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-3">Open Answers</p>
                   <div className="space-y-2">
                     {([
-                      { label: 'Wants to dig deeper into',   value: r.wants_to_dig_deeper },
-                      { label: 'Wants to explore',           value: r.wants_to_explore },
-                      { label: 'Feels confident about',      value: r.feels_confident_about },
+                      { label: 'Wants to explore in greater depth', value: r.wants_to_dig_deeper },
+                      { label: 'Wants the program to incorporate',  value: r.wants_to_explore },
+                      { label: 'Feels most improved in',            value: r.feels_confident_about },
                     ] as const).map(item => (
                       <div key={item.label} className="bg-white border border-border rounded-lg p-3">
                         <p className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-1">{item.label}</p>
@@ -799,7 +802,7 @@ function ByPersonView({
 
 // ─── Member group with checkboxes ─────────────────────────────────────────────
 function MemberGroup({
-  label, labelColor, badge, badgeText, users, selectedIds, onToggle, onToggleAll,
+  label, labelColor, badge, badgeText, users, selectedIds, onToggle, onToggleAll, onDeleteResponse,
 }: {
   label: string
   labelColor: string
@@ -809,6 +812,7 @@ function MemberGroup({
   selectedIds: Set<string>
   onToggle: (id: string) => void
   onToggleAll: () => void
+  onDeleteResponse?: (userId: string, name: string) => void
 }) {
   const allSelected = users.every(u => selectedIds.has(u.id))
 
@@ -830,28 +834,42 @@ function MemberGroup({
         <span className={`text-xs font-semibold ${labelColor}`}>{label} ({users.length})</span>
       </div>
       <div className="space-y-1 pl-6">
-        {users.map(u => (
-          <label key={u.id} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={selectedIds.has(u.id)}
-              onChange={() => onToggle(u.id)}
-              className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
-            />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 truncate">
-                {u.full_name || u.email}
-                {u.role === 'admin' && (
-                  <span className="ml-1.5 text-[10px] font-bold text-purple-600 bg-purple-100 px-1 py-0.5 rounded">Admin</span>
-                )}
-              </p>
-              {u.full_name && <p className="text-xs text-muted truncate">{u.email}</p>}
+        {users.map(u => {
+          const name = u.full_name || u.email
+          return (
+            <div key={u.id} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50">
+              <label className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(u.id)}
+                  onChange={() => onToggle(u.id)}
+                  className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-900 truncate">
+                    {name}
+                    {u.role === 'admin' && (
+                      <span className="ml-1.5 text-[10px] font-bold text-purple-600 bg-purple-100 px-1 py-0.5 rounded">Admin</span>
+                    )}
+                  </p>
+                  {u.full_name && <p className="text-xs text-muted truncate">{u.email}</p>}
+                </div>
+              </label>
+              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${badge}`}>
+                {badgeText}
+              </span>
+              {onDeleteResponse && (
+                <button
+                  onClick={() => onDeleteResponse(u.id, name)}
+                  className="shrink-0 text-xs font-medium text-red-500 hover:text-red-700 hover:underline"
+                  title="Delete this person's survey response"
+                >
+                  Delete response
+                </button>
+              )}
             </div>
-            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${badge}`}>
-              {badgeText}
-            </span>
-          </label>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
